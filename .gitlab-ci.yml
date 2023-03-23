@@ -1,0 +1,47 @@
+# base image for subsequent commands
+default:
+  image: conanio/gcc10
+
+before_script:
+  - export CONAN_USER_HOME="$CI_PROJECT_DIR"
+
+test:
+  stage: test
+  before_script:
+    - sudo apt-get update && sudo apt-get install -y docker.io
+    - sudo pip3 install 'gcovr == 4.2'
+    - 'which ssh-agent || (sudo apt-get update -y && sudo apt-get install openssh-client -y )' # install ssh-agent
+    - eval $(ssh-agent -s)  # run ssh-agent
+    - ssh-add <(echo "$SSH_PRIVATE_KEY")  # add ssh key stored in SSH_PRIVATE_KEY variable to the agent store
+    - mkdir -p ~/.ssh
+    - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
+    - conan profile new default-debug || true
+    - conan profile update settings.compiler=gcc default-debug
+    - conan profile update settings.compiler.libcxx=libstdc++11 default-debug
+    - conan profile update settings.compiler.version=10 default-debug
+    - conan profile update settings.arch=x86_64 default-debug
+    - conan profile update settings.build_type=Debug default-debug
+    - conan profile update settings.os=Linux default-debug
+    - conan remote add gitlab https://gitlab.com/api/v4/packages/conan
+    - conan user ci_user -r gitlab -p ${CI_JOB_TOKEN} 
+  script:
+    - mkdir -p build
+    - cd build
+    - cmake .. -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DCODE_COVERAGE=ON 
+    - cmake --build .
+    - ctest
+    - gcovr --root ../include . --print-summary --html --html-details -o ../test/coverage/index.html
+  coverage: /^\s*lines:\s*\d+.\d+\%/
+  artifacts:  
+    paths:
+      - test/coverage/
+
+pages:
+  stage: deploy
+  dependencies:
+    - test
+  script:
+    - mv test/coverage/ public/
+  artifacts:
+    paths:
+      - public
