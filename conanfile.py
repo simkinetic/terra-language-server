@@ -1,37 +1,47 @@
-from conans import ConanFile, CMake
+from conan import ConanFile
+from conan.tools.cmake import CMake, CMakeToolchain, CMakeDeps, cmake_layout
 
-class ConanPackage(ConanFile):
-    name = "bezier-methods"
-    version = "0.1.0"
+class TerraCompilerConan(ConanFile):
+    name = "terra"
+    version = "2.0.0"
 
-    # Optional metadata
-    license = "Proprietary"
-    author = "Rene Hiemstra (rene.r.hiemstra@gmail.com)"
-    url = "https://gitlab.com/hyperbole-ecosystem/bezier-methods"
-    description = "Implementation of Bernstein-Bezier methods."
-    topics = ("Bernstein-Bezier methods", "c++20")
+    license = "MIT"
+    author = "René Hiemstra"
+    url = "https://github.com/your-org/terra"
+    description = "Terra 2.0 Multi-stage Meta-compiler & Language Server"
+    topics = ("compiler", "luajit", "tree-sitter", "mlir", "c++20")
 
-    # Sources are located in the same place as this recipe, copy them to the recipe
-    exports_sources = "CMakeLists.txt", "include/*"
-    generators = "cmake_find_package"
-
-    no_copy_source = True
+    settings = "os", "compiler", "build_type", "arch"
+    exports_sources = "CMakeLists.txt", "src/*", "test/*"
 
     def requirements(self):
-        self.requires("gtest/cci.20210126")
-        self.requires("linalg/0.5.0@hyperbole-ecosystem+core+linalg/stable")
+        # Core Phase 1 Dependencies
+        self.requires("luajit/2.1.0-beta3")
+        self.requires("tree-sitter/0.25.9")
+        self.requires("libuv/1.48.0") # Needed by luv
+        
+    def build_requirements(self):
+        # In Conan 2, testing frameworks belong in test_requires or build_requirements
+        self.test_requires("gtest/1.14.0")
 
-    
+    def layout(self):
+        # This standardizes where Conan puts build files (e.g., build/Release)
+        cmake_layout(self)
+
+    def generate(self):
+        # CMakeDeps replaces the old "cmake_find_package" generator
+        deps = CMakeDeps(self)
+        deps.generate()
+        
+        # CMakeToolchain generates the conan_toolchain.cmake file
+        tc = CMakeToolchain(self)
+        tc.generate()
+
     def build(self):
         cmake = CMake(self)
         cmake.configure()
         cmake.build()
-        cmake.install()
 
     def package(self):
         cmake = CMake(self)
-        cmake.configure()
         cmake.install()
-
-    def package_info(self):
-        self.info.header_only()

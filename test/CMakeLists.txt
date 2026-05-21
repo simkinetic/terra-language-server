@@ -1,18 +1,18 @@
 # code coverage
 option(CODE_COVERAGE "Enable coverage reporting" OFF)
 if(CODE_COVERAGE)
-	add_subdirectory(coverage)
-endif(CODE_COVERAGE)
+    add_subdirectory(coverage)
+endif()
 
-# register test executables
 find_package(GTest REQUIRED)
 include(CTest)
 include(GoogleTest)
 
-# add test executables
-add_executable(test_primitives "primitives.cpp")
-target_link_libraries(test_primitives PRIVATE bezier-methods GTest::gtest_main)
-gtest_discover_tests(test_primitives)
+# Note: Since 'terra' is an executable, if you want to unit test C++ functions,
+# you should refactor the core C++ logic into a STATIC library and link both
+# the 'terra' executable and your test executables to it.
+# For now, we stub out a basic C++ host test.
 
-add_executable(console "main.cpp")
-target_link_libraries(console PRIVATE bezier-methods)
+# add_executable(test_host "test_host.cpp")
+# target_link_libraries(test_host PRIVATE GTest::gtest_main luajit::luajit)
+# gtest_discover_tests(test_host)

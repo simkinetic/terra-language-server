@@ -1,8 +1,10 @@
 .vs
 .vscode
+.idea
+.DS_Store
 
-out/*
-build/*
+out
+build
 
 test/coverage/*
 !test/coverage/CMakeLists.txt
@@ -11,3 +13,4 @@ test_package/*
 !test_package/src/
 !test_package/CMakeLists.txt
 !test_package/conanfile.py
+.aider*
