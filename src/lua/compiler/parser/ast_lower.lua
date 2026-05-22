@@ -1,8 +1,8 @@
 -- lua/ast_lower.lua
 local ffi = require("ffi")
-local ast = require("lua.ast")
-local asdl = require("lua.asdl")
-local types_module = require("lua.types")
+local ast = require("compiler.semantics.ast")
+local asdl = require("compiler.semantics.asdl")
+local types_module = require("compiler.semantics.types")
 local types = types_module.types
 local T = ast.T
 

@@ -1,12 +1,12 @@
 -- lua/typechecker.lua
-local List = require("lua.asdl").List
-local ast = require("lua.ast")
-local macros = require("lua.macros")
-local quotes = require("lua.quotes")
+local List = require("compiler.semantics.asdl").List
+local ast = require("compiler.semantics.ast")
+local macros = require("compiler.semantics.macros")
+local quotes = require("compiler.semantics.quotes")
 local T = ast.T
-local diagnostics = require("lua.diagnostics")
-local environment = require("lua.environment")
-local types = require("lua.types").types
+local diagnostics = require("compiler.semantics.diagnostics")
+local environment = require("compiler.semantics.environment")
+local types = require("compiler.semantics.types").types
 
 local function evalluaexpression(env, e)
     if not T.luaexpression:isclassof(e) then

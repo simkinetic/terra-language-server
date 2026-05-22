@@ -1,10 +1,10 @@
 -- lua/types.lua
 local ffi = require("ffi")
-local asdl = require("lua.asdl")
+local asdl = require("compiler.semantics.asdl")
 local List = asdl.List
-local diagnostics = require("lua.diagnostics")
-local ast = require("lua.ast")
-local macros = require("lua.macros")
+local diagnostics = require("compiler.semantics.diagnostics")
+local ast = require("compiler.semantics.ast")
+local macros = require("compiler.semantics.macros")
 
 local T = ast.T
 local types = {}

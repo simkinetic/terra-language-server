@@ -1,5 +1,5 @@
 -- lua/ast.lua
-local asdl = require("lua.asdl")
+local asdl = require("compiler.semantics.asdl")
 local List = asdl.List
 
 local function israwlist(l)

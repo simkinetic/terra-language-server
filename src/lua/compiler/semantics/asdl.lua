@@ -1,4 +1,4 @@
-local List = require("lua.terralist")
+local List = require("compiler.utils.terralist")
 
 local Context = {}
 function Context:__index(idx)

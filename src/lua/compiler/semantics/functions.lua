@@ -1,7 +1,7 @@
 -- lua/functions.lua
-local ast = require("lua.ast")
-local asdl = require("lua.asdl")
-local types = require("lua.types").types
+local ast = require("compiler.semantics.ast")
+local asdl = require("compiler.semantics.asdl")
+local types = require("compiler.semantics.types").types
 
 local List = asdl.List
 local T = ast.T

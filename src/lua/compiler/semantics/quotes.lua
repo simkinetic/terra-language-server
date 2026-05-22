@@ -1,6 +1,6 @@
 -- lua/quotes.lua
 local ffi = require("ffi")
-local ast = require("lua.ast")
+local ast = require("compiler.semantics.ast")
 local T = ast.T
 local newobject = ast.newobject
 

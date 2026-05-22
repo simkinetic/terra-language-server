@@ -1,24 +1,30 @@
--- Add the local lua directory to the search path so requires work from the C++ host
-package.path = _G.LSP_ROOT .. "/?.lua;" .. package.path
-require("lua.mobdebug").start()
+-- lua/compiler/core_compiler.lua
+package.path = _G.LSP_ROOT .. "/lua/?.lua;" .. _G.LSP_ROOT .. "/lua/?/init.lua;" .. package.path
+require("mobdebug").start()
 
 local ffi = require("ffi")
 local uv = require("luv")
 
--- ==========================================
 -- 1. BOOTSTRAP UNIFIED NAMESPACE
--- ==========================================
--- This completely replaces the old requires, compatibility layer, and polyfills.
-local terra = require("lua.init")
-local TS = require("lua.ts_ffi")
-local ast_lowerer = require("lua.ast_lower")
+local terra = require("init")
+local TS = require("compiler.parser.ts_ffi")
+local ast_lowerer = require("compiler.parser.ast_lower")
 
 pcall(function() ffi.cdef[[ char *ts_node_string(TSNode node); ]] end)
 
 -- ==========================================
--- 2. ENGINE EXECUTION
+-- 2. ENGINE EXECUTION OR LSP BOOT
 -- ==========================================
 local args = _G.arg or {}
+
+-- If no args or --lsp flag, boot the Language Server!
+if #args == 0 or args[1] == "--lsp" then
+    local server = require("lsp.core.server")
+    server.start()
+    os.exit(0)
+end
+
+-- Otherwise, run in CLI Test Mode
 print("========================================")
 print("🚀 Terra Analyzer Boot Sequence Initiated")
 print("========================================")
@@ -61,8 +67,6 @@ if tree ~= nil then
         print("🔍 PASS 1: TREE-SITTER COLLECTION")
         print("========================================")
         
-        -- We no longer typecheck manually! We build the format string and arguments 
-        -- for terra.defineobjects, just like the real compiler.
         local fmt = ""
         local define_args = {}
         
@@ -70,7 +74,6 @@ if tree ~= nil then
             local node = TS.node_child(root_node, i)
             local node_type = TS.safe_node_type(node)
             
-            -- EXTRACT LUA MACROS
             if node_type == "local_declaration" or node_type == "function_declaration" then
                 local func_node = node
                 if node_type == "local_declaration" then
@@ -103,7 +106,6 @@ if tree ~= nil then
                     end
                 end
                 
-            -- EXTRACT TERRA FUNCTIONS
             elseif node_type == "terra_function_implementation" then
                 local name_node = TS.node_child_by_field_name(node, "name", 4)
                 if not ffi.C.ts_node_is_null(name_node) then
@@ -118,7 +120,6 @@ if tree ~= nil then
                     end
                 end
                 
-            -- EXTRACT STRUCTS
             elseif node_type == "struct_definition" or node_type == "struct_declaration" then
                 local named_children = {}
                 for j = 0, TS.node_child_count(node) - 1 do
@@ -140,7 +141,6 @@ if tree ~= nil then
                             local f_name = ffi.string(TS.get_node_text(named_children[j], source_code))
                             local f_type_str = ffi.string(TS.get_node_text(named_children[j+1], source_code))
                             
-                            -- The typechecker expects field types to be Lua expressions it can evaluate!
                             local expr = terra.newobject(anchor, terra.T.luaexpression, function() 
                                 return _G.CURRENT_ENV[f_type_str] or terra.types[f_type_str] 
                             end, true)
@@ -149,7 +149,6 @@ if tree ~= nil then
                         end
                     end
                     
-                    -- ASDL: structdef = (luaexpression? metatype, structlist records)
                     local my_struct_ast = terra.newobject(anchor, terra.T.structdef, nil, terra.T.structlist(entries))
                     
                     fmt = fmt .. "s"
@@ -163,11 +162,9 @@ if tree ~= nil then
         print("⚙️ PASS 2: NATIVE TYPECHECKING (defineobjects)")
         print("========================================")
         
-        -- Expose environment for ast_lower deferred evaluations
         _G.CURRENT_ENV = module_env 
         
         local status, err = pcall(function()
-            -- We let Terra's robust native architecture take the wheel!
             _G.terra.defineobjects(fmt, function() return module_env end, unpack(define_args))
         end)
         

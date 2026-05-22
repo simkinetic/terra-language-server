@@ -33,16 +33,16 @@ int main(int argc, char** argv) {
     fs::path module_root;
     fs::path script_path;
     
-    // Lambda to check both possible project structures (root vs src/)
+    // Lambda updated to look inside the new compiler/ directory
     auto check_dir = [&](fs::path base) -> bool {
-        if (fs::exists(base / "lua" / "core_compiler.lua")) {
+        if (fs::exists(base / "lua" / "compiler" / "core_compiler.lua")) {
             module_root = base; 
-            script_path = base / "lua" / "core_compiler.lua";
+            script_path = base / "lua" / "compiler" / "core_compiler.lua";
             return true;
         }
-        if (fs::exists(base / "src" / "lua" / "core_compiler.lua")) {
+        if (fs::exists(base / "src" / "lua" / "compiler" / "core_compiler.lua")) {
             module_root = base / "src";
-            script_path = base / "src" / "lua" / "core_compiler.lua";
+            script_path = base / "src" / "lua" / "compiler" / "core_compiler.lua";
             return true;
         }
         return false;
@@ -74,28 +74,34 @@ int main(int argc, char** argv) {
     // 4. THE BULLETPROOF FFI BRIDGE
     // ==========================================
     lua_newtable(L);
-    lua_pushlightuserdata(L, (void*)ts_parser_new);          lua_setfield(L, -2, "ts_parser_new");
-    lua_pushlightuserdata(L, (void*)ts_parser_delete);       lua_setfield(L, -2, "ts_parser_delete");
-    lua_pushlightuserdata(L, (void*)ts_parser_set_language); lua_setfield(L, -2, "ts_parser_set_language");
-    lua_pushlightuserdata(L, (void*)ts_parser_parse_string); lua_setfield(L, -2, "ts_parser_parse_string");
-    lua_pushlightuserdata(L, (void*)ts_tree_delete);         lua_setfield(L, -2, "ts_tree_delete");
-    lua_pushlightuserdata(L, (void*)ts_tree_root_node);      lua_setfield(L, -2, "ts_tree_root_node");
-    lua_pushlightuserdata(L, (void*)ts_node_string);         lua_setfield(L, -2, "ts_node_string");
-    lua_pushlightuserdata(L, (void*)tree_sitter_terra);      lua_setfield(L, -2, "tree_sitter_terra");
-    lua_pushlightuserdata(L, (void*)free);                   lua_setfield(L, -2, "free");
+    lua_pushlightuserdata(L, (void*)ts_parser_new);                lua_setfield(L, -2, "ts_parser_new");
+    lua_pushlightuserdata(L, (void*)ts_parser_delete);             lua_setfield(L, -2, "ts_parser_delete");
+    lua_pushlightuserdata(L, (void*)ts_parser_set_language);       lua_setfield(L, -2, "ts_parser_set_language");
+    lua_pushlightuserdata(L, (void*)ts_parser_parse_string);       lua_setfield(L, -2, "ts_parser_parse_string");
+    lua_pushlightuserdata(L, (void*)ts_tree_delete);               lua_setfield(L, -2, "ts_tree_delete");
+    lua_pushlightuserdata(L, (void*)ts_tree_root_node);            lua_setfield(L, -2, "ts_tree_root_node");
+    lua_pushlightuserdata(L, (void*)ts_node_string);               lua_setfield(L, -2, "ts_node_string");
+    lua_pushlightuserdata(L, (void*)tree_sitter_terra);            lua_setfield(L, -2, "tree_sitter_terra");
+    lua_pushlightuserdata(L, (void*)free);                         lua_setfield(L, -2, "free");
     lua_pushlightuserdata(L, (void*)ts_node_type);                 lua_setfield(L, -2, "ts_node_type");
     lua_pushlightuserdata(L, (void*)ts_node_child_by_field_name);  lua_setfield(L, -2, "ts_node_child_by_field_name");
     lua_pushlightuserdata(L, (void*)ts_node_child_count);          lua_setfield(L, -2, "ts_node_child_count");
     lua_pushlightuserdata(L, (void*)ts_node_child);                lua_setfield(L, -2, "ts_node_child");
-    lua_pushlightuserdata(L, (void*)ts_node_start_byte); lua_setfield(L, -2, "ts_node_start_byte");
-    lua_pushlightuserdata(L, (void*)ts_node_end_byte);   lua_setfield(L, -2, "ts_node_end_byte");
+    lua_pushlightuserdata(L, (void*)ts_node_start_byte);           lua_setfield(L, -2, "ts_node_start_byte");
+    lua_pushlightuserdata(L, (void*)ts_node_end_byte);             lua_setfield(L, -2, "ts_node_end_byte");
+    
+    // Injecting the missing Point APIs for exact line/col LSP tracking
+    lua_pushlightuserdata(L, (void*)ts_node_start_point);          lua_setfield(L, -2, "ts_node_start_point");
+    lua_pushlightuserdata(L, (void*)ts_node_end_point);            lua_setfield(L, -2, "ts_node_end_point");
+    
     lua_setglobal(L, "TS_CAPI"); 
 
     // --- ABI DIAGNOSTICS ---
+    // Shifted to std::cerr to prevent corrupting the LSP JSON-RPC stream
     const TSLanguage* lang = tree_sitter_terra();
     uint32_t grammar_abi = ts_language_version(lang);
-    std::cout << "\n[ABI Diagnostics] Grammar requires ABI: " << grammar_abi << std::endl;
-    std::cout << "[ABI Diagnostics] Conan Engine supports: " 
+    std::cerr << "\n[ABI Diagnostics] Grammar requires ABI: " << grammar_abi << std::endl;
+    std::cerr << "[ABI Diagnostics] Conan Engine supports: " 
               << TREE_SITTER_MIN_COMPATIBLE_LANGUAGE_VERSION << " to " 
               << TREE_SITTER_LANGUAGE_VERSION << std::endl;
 
