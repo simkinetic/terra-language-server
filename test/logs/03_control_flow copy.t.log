@@ -1,0 +1,24 @@
+
+[ABI Diagnostics] Grammar requires ABI: 15
+[ABI Diagnostics] Conan Engine supports: 13 to 15
+========================================
+🚀 Terra Analyzer Boot Sequence Initiated
+========================================
+
+========================================
+🔍 PASS 1: HOISTING & AST LOWERING
+========================================
+[Warning] No visitor defined for node type: comment
+[Warning] No visitor defined for node type: comment
+[Warning] No visitor defined for node type: comment
+[Warning] No visitor defined for node type: comment
+✨ Hoisting function: control_flow_test
+
+========================================
+⚙️ PASS 2: LAZY TYPECHECKING
+========================================
+📦 Contents of module_env before typechecking:
+  -> [string] 'control_flow_test' successfully mapped!
+
+--- TYPECHECKING: control_flow_test ---
+[OK] Successfully typechecked control_flow_test

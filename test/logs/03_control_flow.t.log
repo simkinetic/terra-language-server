@@ -1,0 +1,30 @@
+
+[ABI Diagnostics] Grammar requires ABI: 15
+[ABI Diagnostics] Conan Engine supports: 13 to 15
+Could not connect to localhost:8172: connection refused
+========================================
+🚀 Terra Analyzer Boot Sequence Initiated
+========================================
+🌳 RAW TREE-SITTER CST:
+(chunk (terra_function_implementation name: (identifier) parameters: (terra_function_parameters name: (identifier) type: (identifier) (identifier)) body: (block (terra_var_definition (terra_declaration name: (identifier) type: (identifier)) (number)) (if_statement condition: (binary_expression left: (identifier) right: (number)) consequence: (block (assignment_statement (variable_list name: (identifier)) (expression_list value: (unary_expression operand: (number))))) alternative: (elseif_statement condition: (binary_expression left: (identifier) right: (number)) consequence: (block (assignment_statement (variable_list name: (identifier)) (expression_list value: (number))))) alternative: (else_statement body: (block (assignment_statement (variable_list name: (identifier)) (expression_list value: (number)))))) (return_statement (expression_list (identifier))))) (terra_function_implementation name: (identifier) parameters: (terra_function_parameters (identifier)) body: (block (terra_var_definition (terra_declaration name: (identifier) type: (identifier)) (number)) (for_statement clause: (for_numeric_clause name: (identifier) start: (number) end: (number) step: (number)) body: (block (assignment_statement (variable_list name: (identifier)) (expression_list value: (binary_expression left: (identifier) right: (identifier)))))) (return_statement (expression_list (identifier))))) (terra_function_implementation name: (identifier) parameters: (terra_function_parameters name: (identifier) type: (identifier) (identifier)) body: (block (while_statement condition: (binary_expression left: (identifier) right: (number)) body: (block (assignment_statement (variable_list name: (identifier)) (expression_list value: (binary_expression left: (identifier) right: (number)))) (if_statement condition: (binary_expression left: (identifier) right: (number)) consequence: (block (break_statement))))) (return_statement (expression_list (identifier))))) (terra_function_implementation name: (identifier) parameters: (terra_function_parameters name: (identifier) type: (identifier) (identifier)) body: (block (repeat_statement body: (block (assignment_statement (variable_list name: (identifier)) (expression_list value: (binary_expression left: (identifier) right: (number))))) condition: (binary_expression left: (identifier) right: (number))) (return_statement (expression_list (identifier))))))
+
+========================================
+🔍 PASS 1: HOISTING & AST LOWERING
+========================================
+✨ Hoisting function: if_else_statement
+✨ Hoisting function: for_loop_test
+✨ Hoisting function: while_loop_test
+✨ Hoisting function: repeat_loop_test
+
+========================================
+⚙️ PASS 2: LAZY TYPECHECKING
+========================================
+📦 Mapped Function: repeat_loop_test
+📦 Mapped Function: while_loop_test
+📦 Mapped Function: if_else_statement
+📦 Mapped Function: for_loop_test
+----------------------------------------
+[ OK ] Typechecked: if_else_statement
+[ OK ] Typechecked: for_loop_test
+[ OK ] Typechecked: while_loop_test
+[ OK ] Typechecked: repeat_loop_test

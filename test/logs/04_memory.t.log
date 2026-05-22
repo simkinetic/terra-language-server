@@ -1,0 +1,29 @@
+
+[ABI Diagnostics] Grammar requires ABI: 15
+[ABI Diagnostics] Conan Engine supports: 13 to 15
+Could not connect to localhost:8172: connection refused
+========================================
+🚀 Terra Analyzer Boot Sequence Initiated
+========================================
+🌳 RAW TREE-SITTER CST:
+(chunk (struct_definition name: (identifier) name: (identifier) type: (identifier) name: (identifier) type: (identifier)) (terra_function_implementation name: (identifier) parameters: (terra_function_parameters (identifier)) body: (block (terra_declaration name: (identifier) type: (identifier)) (assignment_statement (variable_list name: (dot_index_expression table: (identifier) field: (identifier))) (expression_list value: (number))) (assignment_statement (variable_list name: (dot_index_expression table: (identifier) field: (identifier))) (expression_list value: (number))) (return_statement (expression_list (binary_expression left: (dot_index_expression table: (identifier) field: (identifier)) right: (dot_index_expression table: (identifier) field: (identifier))))))) (terra_function_implementation name: (identifier) parameters: (terra_function_parameters (identifier)) body: (block (terra_var_definition (terra_declaration name: (identifier) type: (identifier)) (number)) (terra_var_definition (terra_declaration name: (identifier) type: (pointer_type type: (identifier))) (reference (identifier))) (assignment_statement (variable_list name: (dereference (identifier))) (expression_list value: (number))) (return_statement (expression_list (identifier))))) (terra_function_implementation name: (identifier) parameters: (terra_function_parameters name: (identifier) type: (identifier) (identifier)) body: (block (terra_var_definition (terra_declaration (identifier)) (function_call (escape_expression (identifier)) arguments: (arguments (identifier)))) (return_statement (expression_list (identifier))))))
+
+========================================
+🔍 PASS 1: HOISTING & AST LOWERING
+========================================
+🏗️  Hoisting struct: Point
+✨ Hoisting function: struct_test
+✨ Hoisting function: pointer_test
+✨ Hoisting function: cast_test
+
+========================================
+⚙️ PASS 2: LAZY TYPECHECKING
+========================================
+📦 Mapped Function: cast_test
+📦 Mapped Function: struct_test
+📦 Mapped Struct:   Point
+📦 Mapped Function: pointer_test
+----------------------------------------
+[ OK ] Typechecked: struct_test
+[ OK ] Typechecked: pointer_test
+[ OK ] Typechecked: cast_test

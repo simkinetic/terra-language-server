@@ -12,7 +12,16 @@ ffi.cdef[[
         const TSTree *tree;
     } TSNode;
 
+    typedef struct {
+        uint32_t row;
+        uint32_t column;
+    } TSPoint;
+
     bool ts_node_is_null(TSNode node);
+    bool ts_node_is_named(TSNode node);
+    
+    TSPoint ts_node_start_point(TSNode node);
+    TSPoint ts_node_end_point(TSNode node);
 ]]
 
 local TS = {
@@ -31,6 +40,8 @@ local TS = {
     node_child                  = ffi.cast("TSNode (*)(TSNode, uint32_t)", TS_CAPI.ts_node_child),
     node_start_byte             = ffi.cast("uint32_t (*)(TSNode)", TS_CAPI.ts_node_start_byte),
     node_end_byte               = ffi.cast("uint32_t (*)(TSNode)", TS_CAPI.ts_node_end_byte),
+    node_start_point            = ffi.cast("TSPoint (*)(TSNode)", TS_CAPI.ts_node_start_point),
+    node_end_point              = ffi.cast("TSPoint (*)(TSNode)", TS_CAPI.ts_node_end_point),
 }
 
 function TS.safe_node_type(node)

@@ -1,0 +1,27 @@
+
+[ABI Diagnostics] Grammar requires ABI: 15
+[ABI Diagnostics] Conan Engine supports: 13 to 15
+Could not connect to localhost:8172: connection refused
+========================================
+🚀 Terra Analyzer Boot Sequence Initiated
+========================================
+
+========================================
+🔍 PASS 1: HOISTING & AST LOWERING
+========================================
+🏗️  Hoisting struct: Point
+✨ Hoisting function: struct_test
+✨ Hoisting function: pointer_test
+✨ Hoisting function: cast_test
+
+========================================
+⚙️ PASS 2: LAZY TYPECHECKING
+========================================
+📦 Mapped Function: cast_test
+📦 Mapped Function: struct_test
+📦 Mapped Struct:   Point
+📦 Mapped Function: pointer_test
+----------------------------------------
+[ OK ] Typechecked: struct_test
+[ OK ] Typechecked: pointer_test
+[ OK ] Typechecked: cast_test

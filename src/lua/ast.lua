@@ -228,12 +228,15 @@ local function copyobject(ref, newfields)
 end
 T.tree.copy = copyobject
 
-local function newanchor(depth)
-    local info = debug.getinfo(1 + depth, "Sl")
-    local body = { linenumber = info and info.currentline or 0, filename = info and info.short_src or "unknown" }
-    return setmetatable(body, T.tree)
+local function newanchor(line, col, filename)
+    local body = { 
+        isanchor = true,
+        linenumber = line or 0, 
+        columnnumber = col or 0,
+        filename = filename or "unknown" 
+    }
+    return setmetatable(body, T.tree) 
 end
-
 -- ==========================================
 -- 3. SYMBOLS AND LABELS
 -- ==========================================
@@ -293,6 +296,7 @@ return {
     T = T,
     mkstring = mkstring,
     israwlist = israwlist,
+    islist = islist,
     printraw = T.tree.printraw,
     istree = istree,
     newobject = newobject,

@@ -1,6 +1,7 @@
 local List = require("lua.asdl").List
 local ast = require("lua.ast")
 local macros = require("lua.macros")
+local quotes = require("lua.quotes")
 local T = ast.T
 local diagnostics = require("lua.diagnostics")
 local environment = require("lua.environment")
@@ -470,7 +471,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
 
             local errormsgs = List()
             for i,__cast in ipairs(cast_fns) do
-                local quotedexp = ast.newquote(exp)
+                local quotedexp = quotes.newquote(exp)
                 local success,result = invokeuserfunction(exp, "invoking __cast", true,__cast,exp.type,typ,quotedexp)
                 if success then
                     local result = asterraexpression(exp,result)
@@ -1332,7 +1333,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         end
 
         if themacro then
-            local quotes = arguments:map(ast.newquote)
+            local quotes = arguments:map(quotes.newquote)
             local result = invokeuserfunction(anchor,"invoking macro",false, themacro.run, themacro, diag, anchor, unpack(quotes))
             return asterraexpression(anchor,result,location)
         end
@@ -1931,7 +1932,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                     local body = checkblock(s.body)
                     env:leaveblock()
                     local stats = createstatementlist(s, List { assign, body })
-                    return ast.newquote(stats)
+                    return quotes.newquote(stats)
                 end
             
                 local value = invokeuserfunction(s, "invoking __for", false ,generator,ast.newquote(iterator), bodycallback)

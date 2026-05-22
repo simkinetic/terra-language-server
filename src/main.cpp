@@ -1,9 +1,12 @@
 #include <iostream>
 #include <cstdlib>
+#include <filesystem>
 #include "lua.hpp"
 
 // Because Conan configures the include paths automatically, this works out of the box!
 #include <tree_sitter/api.h>
+
+namespace fs = std::filesystem;
 
 extern "C" int luaopen_luv(lua_State *L);
 extern "C" const TSLanguage *tree_sitter_terra(); // Forward declare your custom grammar
@@ -24,9 +27,52 @@ int main(int argc, char** argv) {
     lua_setfield(L, -2, "luv");
     lua_pop(L, 2);
 
-    // 3. THE BULLETPROOF FFI BRIDGE
-    // We pass the exact memory addresses of the C functions to Lua.
-    // The macOS linker cannot hide these from us now.
+    // ==========================================
+    // 3. SMART DYNAMIC PATH RESOLUTION
+    // ==========================================
+    fs::path module_root;
+    fs::path script_path;
+    
+    // Lambda to check both possible project structures (root vs src/)
+    auto check_dir = [&](fs::path base) -> bool {
+        if (fs::exists(base / "lua" / "core_compiler.lua")) {
+            module_root = base; 
+            script_path = base / "lua" / "core_compiler.lua";
+            return true;
+        }
+        if (fs::exists(base / "src" / "lua" / "core_compiler.lua")) {
+            module_root = base / "src";
+            script_path = base / "src" / "lua" / "core_compiler.lua";
+            return true;
+        }
+        return false;
+    };
+
+    // Attempt 1: Check Current Working Directory (handles Bash scripts perfectly)
+    if (!check_dir(fs::current_path())) {
+        // Attempt 2: Walk upwards from the executable's absolute location
+        fs::path current_dir = fs::absolute(fs::path(argv[0])).parent_path();
+        while (current_dir.has_parent_path() && current_dir != current_dir.parent_path()) {
+            if (check_dir(current_dir)) break;
+            current_dir = current_dir.parent_path();
+        }
+    }
+    
+    if (script_path.empty()) {
+        std::cerr << "Fatal: Could not locate 'core_compiler.lua'." << std::endl;
+        std::cerr << "[Debug] CWD checked: " << fs::current_path().string() << std::endl;
+        std::cerr << "[Debug] Exec checked: " << fs::absolute(fs::path(argv[0])).string() << std::endl;
+        lua_close(L);
+        return 1;
+    }
+
+    // Inject the absolute module root into Lua so it can fix its internal requires
+    lua_pushstring(L, module_root.string().c_str());
+    lua_setglobal(L, "LSP_ROOT");
+
+    // ==========================================
+    // 4. THE BULLETPROOF FFI BRIDGE
+    // ==========================================
     lua_newtable(L);
     lua_pushlightuserdata(L, (void*)ts_parser_new);          lua_setfield(L, -2, "ts_parser_new");
     lua_pushlightuserdata(L, (void*)ts_parser_delete);       lua_setfield(L, -2, "ts_parser_delete");
@@ -43,7 +89,7 @@ int main(int argc, char** argv) {
     lua_pushlightuserdata(L, (void*)ts_node_child);                lua_setfield(L, -2, "ts_node_child");
     lua_pushlightuserdata(L, (void*)ts_node_start_byte); lua_setfield(L, -2, "ts_node_start_byte");
     lua_pushlightuserdata(L, (void*)ts_node_end_byte);   lua_setfield(L, -2, "ts_node_end_byte");
-    lua_setglobal(L, "TS_CAPI"); // Save this table as a global variable in Lua
+    lua_setglobal(L, "TS_CAPI"); 
 
     // --- ABI DIAGNOSTICS ---
     const TSLanguage* lang = tree_sitter_terra();
@@ -53,7 +99,7 @@ int main(int argc, char** argv) {
               << TREE_SITTER_MIN_COMPATIBLE_LANGUAGE_VERSION << " to " 
               << TREE_SITTER_LANGUAGE_VERSION << std::endl;
 
-    // 4. Pass CLI Arguments
+    // 5. Pass CLI Arguments
     lua_newtable(L);
     for (int i = 0; i < argc; i++) {
         lua_pushstring(L, argv[i]);
@@ -61,8 +107,10 @@ int main(int argc, char** argv) {
     }
     lua_setglobal(L, "arg");
 
-    // 5. Execute
-    if (luaL_dofile(L, "lua/core_compiler.lua") != LUA_OK) {
+    // ==========================================
+    // 6. EXECUTE USING ABSOLUTE PATH
+    // ==========================================
+    if (luaL_dofile(L, script_path.string().c_str()) != LUA_OK) {
         std::cerr << "Terra LS Error: " << lua_tostring(L, -1) << std::endl;
         lua_close(L);
         return 1;

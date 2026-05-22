@@ -1,0 +1,25 @@
+
+[ABI Diagnostics] Grammar requires ABI: 15
+[ABI Diagnostics] Conan Engine supports: 13 to 15
+Could not connect to localhost:8172: connection refused
+========================================
+🚀 Terra Analyzer Boot Sequence Initiated
+========================================
+🌳 RAW TREE-SITTER CST:
+(chunk (comment content: (comment_content)) (comment content: (comment_content)) local_declaration: (function_declaration name: (identifier) parameters: (parameters name: (identifier) name: (identifier)) body: (block (return_statement (expression_list (short_quote_expression (binary_expression left: (identifier) right: (identifier))))))) (comment content: (comment_content)) (terra_function_implementation name: (identifier) parameters: (terra_function_parameters name: (identifier) type: (identifier) (identifier)) body: (block (terra_var_definition (terra_declaration (identifier)) (number)) (comment content: (comment_content)) (comment content: (comment_content)) (return_statement (expression_list (escape_expression (function_call name: (identifier) arguments: (arguments (identifier) (identifier)))))))))
+
+========================================
+🔍 PASS 1: HOISTING & AST LOWERING
+========================================
+[Warning] No visitor defined for node type: comment
+[Warning] No visitor defined for node type: comment
+✨ Hoisting function: meta_test
+
+========================================
+⚙️ PASS 2: LAZY TYPECHECKING
+========================================
+📦 Mapped Function: meta_test
+----------------------------------------
+[FAIL] Semantic Error in meta_test:
+Errors reported during typechecking.
+lua object of type expected a terra expression but found 
