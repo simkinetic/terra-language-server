@@ -1,3 +1,4 @@
+-- lua/macros.lua
 local macro = {}
 macro.__index = macro
 
@@ -29,8 +30,6 @@ local function internalmacro(...)
     m._internal = true
     return m
 end
-
-_G["macro"] = createmacro -- Introduce macro intrinsic into global namespace
 
 return {
     ismacro = ismacro,

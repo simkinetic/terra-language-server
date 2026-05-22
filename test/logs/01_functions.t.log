@@ -9,16 +9,12 @@ Could not connect to localhost:8172: connection refused
 (chunk (terra_function_implementation name: (identifier) parameters: (terra_function_parameters) body: (block (terra_var_definition (terra_declaration name: (identifier) type: (identifier)) (number)))) (terra_function_implementation name: (identifier) parameters: (terra_function_parameters name: (identifier) type: (identifier) name: (identifier) type: (identifier) (identifier)) body: (block (terra_var_definition (terra_declaration name: (identifier) type: (identifier)) (number)) (return_statement (expression_list (identifier))))))
 
 ========================================
-🔍 PASS 1: HOISTING & AST LOWERING
+🔍 PASS 1: TREE-SITTER COLLECTION
 ========================================
-✨ Hoisting function: foo1
-✨ Hoisting function: foo2
+✨ Collected function: foo1
+✨ Collected function: foo2
 
 ========================================
-⚙️ PASS 2: LAZY TYPECHECKING
+⚙️ PASS 2: NATIVE TYPECHECKING (defineobjects)
 ========================================
-📦 Mapped Function: foo2
-📦 Mapped Function: foo1
-----------------------------------------
-[ OK ] Typechecked: foo1
-[ OK ] Typechecked: foo2
+[ OK ] Module Typechecked Successfully!

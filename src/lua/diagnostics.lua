@@ -1,19 +1,26 @@
+-- lua/diagnostics.lua
 local asdl = require("lua.asdl")
 local List = asdl.List
 
 local diagnostics = {}
 diagnostics.__index = diagnostics
 
-local diagcache = setmetatable({},{ __mode = "v" })
+-- Weak table to cache file reads across error reports
+local diagcache = setmetatable({}, { __mode = "v" })
 
-local function formaterror(anchor,...)
+local function formaterror(anchor, ...)
     if not anchor or not anchor.filename or not anchor.linenumber then
         error("nil anchor")
     end
     local errlist = List()
-    errlist:insert(anchor.filename..":"..anchor.linenumber..": ")
-    for i = 1,select("#",...) do errlist:insert(tostring(select(i,...))) end
+    errlist:insert(anchor.filename .. ":" .. anchor.linenumber .. ": ")
+    
+    -- Natively concatenate all varargs
+    for i = 1, select("#", ...) do 
+        errlist:insert(tostring(select(i, ...))) 
+    end
     errlist:insert("\n")
+    
     if not anchor.offset then 
         return errlist:concat()
     end
@@ -21,16 +28,18 @@ local function formaterror(anchor,...)
     local filename = anchor.filename
     local filetext = diagcache[filename] 
     if not filetext then
-        local file = io.open(filename,"r")
+        local file = io.open(filename, "r")
         if file then
             filetext = file:read("*all")
             diagcache[filename] = filetext
             file:close()
         end
     end
-    if filetext then --if the code did not come from a file then we don't print the carrot, since we cannot (easily) find the text
-        local begin,finish = anchor.offset + 1,anchor.offset + 1
-        local TAB,NL = ("\t"):byte(),("\n"):byte()
+    
+    if filetext then
+        local begin, finish = anchor.offset + 1, anchor.offset + 1
+        local TAB, NL = ("\t"):byte(), ("\n"):byte()
+        
         while begin > 1 and filetext:byte(begin) ~= NL do
             begin = begin - 1
         end
@@ -40,42 +49,45 @@ local function formaterror(anchor,...)
         while finish < filetext:len() and filetext:byte(finish + 1) ~= NL do
             finish = finish + 1
         end
-        local line = filetext:sub(begin,finish) 
+        
+        local line = filetext:sub(begin, finish) 
         errlist:insert(line)
         errlist:insert("\n")
-        for i = begin,anchor.offset do
+        
+        for i = begin, anchor.offset do
             errlist:insert((filetext:byte(i) == TAB and "\t") or " ")
         end
         errlist:insert("^\n")
     end
+    
     return errlist:concat()
 end
 
-local function erroratlocation(anchor,...)
-    error(formaterror(anchor,...),0)
+local function erroratlocation(anchor, ...)
+    error(formaterror(anchor, ...), 0)
 end
 
-diagnostics.source = {}
-
-function diagnostics:reporterror(anchor, msg, ...)
-    local formatted_msg = msg
-    if select('#', ...) > 0 then
-        formatted_msg = string.format(msg, ...)
+function diagnostics:reporterror(anchor, ...)
+    -- 1. Safely extract the raw message without file context for the LSP
+    local raw_msg_parts = {}
+    for i = 1, select('#', ...) do
+        table.insert(raw_msg_parts, tostring(select(i, ...)))
     end
+    local raw_msg = table.concat(raw_msg_parts)
 
-    -- 1. Create a secret structured list for our LSP
-    self.lsp_errors = self.lsp_errors or {}
+    -- 2. Create a secret structured list for our LSP
     table.insert(self.lsp_errors, {
         anchor = anchor,
-        message = formatted_msg
+        message = raw_msg
     })
 
-    -- 2. Give Terra exactly what it expects so table.concat() doesn't crash
-    table.insert(self.errors, formatted_msg)
+    -- 3. Give Terra exactly what it expects (the fully formatted file snippet)
+    local full_formatted_error = formaterror(anchor, ...)
+    self.errors:insert(full_formatted_error)
 
     -- Return the abort closure so the typechecker can halt safely
     return { 
-        aserror = function() error(formatted_msg, 0) end 
+        aserror = function() error(full_formatted_error, 0) end 
     }
 end
 
@@ -83,14 +95,15 @@ function diagnostics:haserrors()
     return #self.errors > 0
 end
 
-function diagnostics:finishandabortiferrors(msg,depth)
+function diagnostics:finishandabortiferrors(msg, depth)
     if #self.errors > 0 then
-        error(msg.."\n"..self.errors:concat(),depth+1)
+        error(msg .. "\n" .. self.errors:concat(), (depth or 1) + 1)
     end
 end
 
 local function newdiagnostics()
-    return setmetatable({ errors = List() }, diagnostics)
+    -- Initialize BOTH the native list and the LSP tracking table
+    return setmetatable({ errors = List(), lsp_errors = {} }, diagnostics)
 end
 
 return {

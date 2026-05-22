@@ -1,3 +1,4 @@
+-- lua/quotes.lua
 local ffi = require("ffi")
 local ast = require("lua.ast")
 local T = ast.T
@@ -45,11 +46,12 @@ if T.quote then
                  return e.value
             else
                 local runconstantprop = function()
+                    -- Safe runtime lookup to avoid circular require
                     return _G.terra.constant(self):get()
                 end
                 local status, value = pcall(runconstantprop)
                 if not status then
-                    return nil, "not a constant value (note: :asvalue() isn't implement for all constants yet), error propagating constant was: "..tostring(value)
+                    return nil, "not a constant value (note: :asvalue() isn't implemented for all constants yet), error propagating constant was: "..tostring(value)
                 end
                 return value
             end

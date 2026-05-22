@@ -1,10 +1,10 @@
+-- lua/functions.lua
 local ast = require("lua.ast")
 local asdl = require("lua.asdl")
-local types_module = require("lua.types")
+local types = require("lua.types").types
 
 local List = asdl.List
 local T = ast.T
-local types = types_module.types
 
 -- ==========================================
 -- 1. TERRAFUNCTION METHODS

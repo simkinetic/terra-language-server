@@ -18,7 +18,8 @@ local function create_lowerer(TS, filename)
 
     local function create_anchor(node)
         if not node or ffi.C.ts_node_is_null(node) then
-            return create_anchor(node, 1, filename)
+            -- FIXED: Return the actual anchor instead of infinite recursion
+            return ast.newanchor(1, 1, filename)
         end
         local point = ffi.C.ts_node_start_point(node)
         -- Tree-sitter is 0-indexed. DWARF/MLIR/LSP is 1-indexed!
@@ -31,7 +32,7 @@ local function create_lowerer(TS, filename)
     Visitor["ERROR"] = function(node, source)
         local start_byte = TS.node_start_byte(node)
         local end_byte = TS.node_end_byte(node)
-        local bad_text = source:sub(start_byte + 1, end_byte)
+        local bad_text = ffi.string(TS.get_node_text(node, source))
         
         -- SAFE APPEND: Record the diagnostic for the Language Server
         state.diagnostics[#state.diagnostics + 1] = {
@@ -49,12 +50,12 @@ local function create_lowerer(TS, filename)
     -- 2. PRIMITIVES & IDENTIFIERS
     -- ==========================================
     Visitor["number"] = function(node, source)
-        local text = TS.get_node_text(node, source)
+        local text = ffi.string(TS.get_node_text(node, source))
         return ast.newobject(create_anchor(node), T.literal, tonumber(text), types.int32)
     end
 
     Visitor["identifier"] = function(node, source)
-        local text = TS.get_node_text(node, source)
+        local text = ffi.string(TS.get_node_text(node, source))
         return ast.newobject(create_anchor(node), T.var, text)
     end
 
@@ -67,7 +68,7 @@ local function create_lowerer(TS, filename)
         
         -- The operator (+, -, *, /) is always the middle child (index 1)
         local op_node = TS.node_child(node, 1)
-        local op_text = TS.get_node_text(op_node, source)
+        local op_text = ffi.string(TS.get_node_text(op_node, source))
         
         local left_ast = LowerAST(left_node, source)
         local right_ast = LowerAST(right_node, source)
@@ -147,8 +148,7 @@ local function create_lowerer(TS, filename)
             property_node = last_named
         end
 
-        local field_name = TS.get_node_text(property_node, source)
-        if type(field_name) == "cdata" then field_name = ffi.string(field_name) end
+        local field_name = ffi.string(TS.get_node_text(property_node, source))
 
         -- Construct the selectu node exactly as Terra expects
         local named_ident = ast.newobject(anchor, T.namedident, field_name)
@@ -260,7 +260,7 @@ local function create_lowerer(TS, filename)
             local type_name = ffi.string(TS.get_node_text(type_node, source))
             
             local type_resolver = function() 
-                return _G.CURRENT_ENV[type_name] or _G.terralib.types[type_name] 
+                return (_G.CURRENT_ENV and _G.CURRENT_ENV[type_name]) or types[type_name] 
             end
             type_expr = ast.newobject(anchor, T.luaexpression, type_resolver, true)
         end
@@ -408,8 +408,7 @@ local function create_lowerer(TS, filename)
              end
         end
 
-        local var_name = TS.get_node_text(var_node, source)
-        if type(var_name) == "cdata" then var_name = ffi.string(var_name) end
+        local var_name = ffi.string(TS.get_node_text(var_node, source))
 
         local named_ident = ast.newobject(anchor, T.namedident, var_name)
         local iter_param = ast.newobject(anchor, T.unevaluatedparam, named_ident, nil)
@@ -556,7 +555,7 @@ local function create_lowerer(TS, filename)
         local body_block = ast.newobject(anchor, T.block, statements)
 
         local function resolve_type(type_node)
-            local type_text = TS.get_node_text(type_node, source)
+            local type_text = ffi.string(TS.get_node_text(type_node, source))
             local std_types = { ["int"] = types.int32, ["double"] = types.double, ["bool"] = types.bool, ["float"] = types.float }
             local res = std_types[type_text] or types[type_text]
             if not res then 
@@ -594,7 +593,7 @@ local function create_lowerer(TS, filename)
                 local param_name_node = identifiers[i]
                 local param_type_node = identifiers[i+1]
                 
-                local param_name = TS.get_node_text(param_name_node, source)
+                local param_name = ffi.string(TS.get_node_text(param_name_node, source))
                 local resolved_type = resolve_type(param_type_node)
                 
                 local sym = ast.newsymbol and ast.newsymbol(resolved_type, param_name) or T.symbol(resolved_type, param_name)
@@ -606,7 +605,7 @@ local function create_lowerer(TS, filename)
         local name_node = TS.node_child_by_field_name(node, "name", 4)
         local func_name = nil
         if not ffi.C.ts_node_is_null(name_node) then
-            func_name = TS.get_node_text(name_node, source)
+            func_name = ffi.string(TS.get_node_text(name_node, source))
         end
 
         local func_ast = ast.newobject(anchor, T.functiondefu, params_list, false, return_type_ast, body_block)
@@ -677,7 +676,7 @@ local function create_lowerer(TS, filename)
                 if status and result then return result end
             end
             
-            return env[inner_text] or _G.terralib.types[inner_text]
+            return env[inner_text] or types[inner_text]
         end
         
         return ast.newobject(anchor, T.luaexpression, lua_eval_fn, true)
@@ -697,6 +696,7 @@ local function create_lowerer(TS, filename)
         if visitor_fn then
             return visitor_fn(node, source)
         else
+            -- You might want to suppress this in production, but great for debugging missing grammar features
             print("[Warning] No visitor defined for node type: " .. node_type)
             return nil
         end

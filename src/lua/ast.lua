@@ -1,4 +1,6 @@
+-- lua/ast.lua
 local asdl = require("lua.asdl")
+local List = asdl.List
 
 local function israwlist(l)
     if List:isclassof(l) then
@@ -25,7 +27,7 @@ T:Extern("TypeOrLuaExpression", function(t) return T.Type:isclassof(t) or type(t
 -- 1. THE OFFICIAL TERRA ASDL SCHEMA
 -- ==========================================
 T:Define [[
-ident =     escapedident(luaexpression expression) # removed during specialization
+ident =     escapedident(luaexpression expression) 
           | namedident(string value)
           | labelident(Label value)
 
@@ -48,11 +50,11 @@ Symbol = (Type type, string displayname, number id)
 Label = (string displayname, number id)
 tree = 
        luaexpression(function expression, boolean isexpression)
-     | constructoru(field* records) #untyped version
-     | selectu(tree value, ident field) #untyped version
+     | constructoru(field* records) 
+     | selectu(tree value, ident field) 
      | method(tree value,ident name,tree* arguments) 
      | statlist(tree* statements)
-     | fornumu(param variable, tree initial, tree limit, tree? step,block body) #untyped version
+     | fornumu(param variable, tree initial, tree limit, tree? step,block body) 
      | defvar(param* variables,  boolean hasinit, tree* initializers)
      | forlist(param* variables, tree iterator, block body)
      | functiondefu(param* parameters, boolean is_varargs, TypeOrLuaExpression? returntype, block body)
@@ -215,7 +217,8 @@ local function copyobject(ref, newfields)
             return newobject(ref, class, ...)
         else
             local f = fields[i]
-            local a = newfields[f.name] or ref[f.name]
+            local a = newfields[f.name]
+            if a == nil then a = ref[f.name] end
             newfields[f.name] = nil
             return handlefield(i - 1, a, ...)
         end
@@ -237,6 +240,7 @@ local function newanchor(line, col, filename)
     }
     return setmetatable(body, T.tree) 
 end
+
 -- ==========================================
 -- 3. SYMBOLS AND LABELS
 -- ==========================================

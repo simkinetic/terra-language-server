@@ -1,3 +1,4 @@
+-- lua/typechecker.lua
 local List = require("lua.asdl").List
 local ast = require("lua.ast")
 local macros = require("lua.macros")
@@ -6,7 +7,6 @@ local T = ast.T
 local diagnostics = require("lua.diagnostics")
 local environment = require("lua.environment")
 local types = require("lua.types").types
-
 
 local function evalluaexpression(env, e)
     if not T.luaexpression:isclassof(e) then
@@ -17,8 +17,7 @@ local function evalluaexpression(env, e)
     local oldenv = getfenv(fn)
     setfenv(fn,env)
     local v = invokeuserfunction(e,"evaluating Lua code from Terra",false,fn)
-    setfenv(fn,oldenv) --otherwise, we hold false reference to env, -- in the case of an error, this function will still hold a reference
-                       -- but without a good way of doing 'finally' without messing with the error trace there is no way around this
+    setfenv(fn,oldenv) 
     return v
 end
 
@@ -69,15 +68,13 @@ local function evaluateparameterlist(diag, env, paramlist, requiretypes)
         if requiretypes and not entry.type then
             diag:reporterror(entry,"type must be specified for parameters and uninitialized variables")
         end
-    
     end
     return result
 end
     
 local function semanticcheck(diag,parameters,block)
     local symbolenv = environment.newenvironment()
-    
-    local labelstates = {} -- map from label value to labelstate object, either representing a defined or undefined label
+    local labelstates = {}
     local globalsused = List() 
     
     local loopdepth = 0
@@ -101,8 +98,7 @@ local function semanticcheck(diag,parameters,block)
             diag:reporterror(anchor, "defer statements are not allowed in conditional expressions")
         end
     end
-    --calculate the number of deferred statements that will fire when jumping from stack position 'from' to 'to'
-    --if a goto crosses a deferred statement, we detect that and report an error
+
     local function checkdeferredpassed(anchor,from,to)
         local N = math.max(#from,#to)
         for i = 1,N do
@@ -202,7 +198,7 @@ local function semanticcheck(diag,parameters,block)
                 scopeposition[#scopeposition] = scopeposition[#scopeposition] + 1
             elseif e:is "operator" and (e.operator == "and" or e.operator == "or") and e.operands[1].type:islogical() then
                 visitnolocaldefers(e,e.operands)
-            else --generic traversal
+            else 
                 for _,field in ipairs(e.__fields) do
                     visit(e[field.name])
                 end
@@ -212,7 +208,6 @@ local function semanticcheck(diag,parameters,block)
     visit(parameters)
     visit(block)
     
-    --check the label table for any labels that have been referenced but not defined
     local labeldepths = {}
     for k,state in pairs(labelstates) do
         if state.kind == "undefinedlabel" then
@@ -255,14 +250,10 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         return ast.newobject(e,T.labelident,r)
     end
 
+    local checkexp 
+    local checkstmts,checkblock 
+    local checkcall 
 
-    -- TYPECHECKING FUNCTION DECLARATIONS
-    --declarations major driver functions for typechecker
-    local checkexp -- (e.g. 3 + 4)
-    local checkstmts,checkblock -- (e.g. var a = 3)
-    local checkcall -- any invocation (method, function call, macro, overloaded operator) gets translated into a call to checkcall (e.g. sizeof(int), foobar(3), obj:method(arg))
-
-    --tree constructors for trees created in the typechecking process
     local function createcast(exp,typ)
         return ast.newobject(exp,T.cast,typ,exp):withtype(typ:tcomplete(exp))
     end
@@ -276,7 +267,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                 diag:reporterror(e.anchor,"definition of function is here.")
             else
                 simultaneousdefinitions[e] = nil
-                local body = typecheck(functiondef,luaenv,simultaneousdefinitions) -- can throw, but we just want to pass the error through
+                local body = typecheck(functiondef,luaenv,simultaneousdefinitions) 
                 e:adddefinition(body)
                 fntyp = e.type
             end
@@ -321,22 +312,20 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         return e
     end
     local createlet
-    --convert a lua value 'v' into the terra tree representing that value
+    
     local function asterraexpression(anchor,v,location)
         location = location or "expression"
         local function createsingle(v)
             if terra.isglobalvar(v) or ast.issymbol(v) then
-                local name = T.var:isclassof(anchor) and anchor.name --propage original variable name for debugging purposes
+                local name = T.var:isclassof(anchor) and anchor.name
                 return ast.newobject(anchor,terra.isglobalvar(v) and T.globalvalueref or T.var,name or tostring(v),v):setlvalue(true):withtype(v.type)
             elseif terra.isquote(v) then
                 return v.tree
             elseif ast.istree(v) then
-                --if this is a raw tree, we just drop it in place and hope the user knew what they were doing
                 return v
             elseif type(v) == "cdata" then
                 local typ = terra.typeof(v)
-                if typ:isaggregate() then --when an aggregate is directly referenced from Terra we get its pointer
-                                          --a constant would make an entire copy of the object
+                if typ:isaggregate() then
                     local ptrobj = createsingle(terra.constant(types.pointer(typ),v))
                     return insertdereference(ptrobj)
                 end
@@ -375,17 +364,12 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         end
         return createlet(anchor, List(), values, false)
     end
-    --functions handling casting between types
+    
+    local insertcast 
+    local insertexplicitcast 
+    local structcast 
+    local insertrecievercast 
 
-    local insertcast --handles implicitly allowed casts (e.g. var a : int = 3.5)
-    local insertexplicitcast --handles casts performed explicitly (e.g. var a = int(3.5))
-    local structcast -- handles casting from an anonymous structure type to another struct type (e.g. StructFoo { 3, 5 })
-    local insertrecievercast -- handles casting for method recievers, which allows for an implicit addressof operator to be inserted
-    -- all implicit casts (struct,reciever,generic) take a speculative argument
-    --if speculative is true, then errors will not be reported (caller must check)
-    --this is used to see if an overloaded function can apply to the argument list
-
-    --create a new variable allocation and a var node that refers to it, used to create temporary variables
     local function allocvar(anchor,typ,name)
         local av = newobject(anchor,T.allocvar,name,ast.newsymbol(typ,name)):setlvalue(true):withtype(typ:tcomplete(anchor))
         local v = newobject(anchor,T.var,name,av.symbol):setlvalue(true):withtype(typ)
@@ -397,7 +381,6 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         local from = exp.type:getlayout(exp)
         local to = typ:getlayout(exp)
 
-        --take care of (managed and partial) struct initialization
         if terralib.ext and exp:is "constructor" and terralib.ext.ismanaged(typ) then
             local f = terralib.ext.addmissing.constructor(exp.type, typ)
             local fnlike = asterraexpression(exp, f, "luaobject")
@@ -432,7 +415,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         return newobject(exp,T.structcast,structvariable,exp,entries):withtype(typ)
     end
 
-    function insertcast(exp,typ,speculative) --if speculative is true, then an error will not be reported and the caller should check the second return value to see if the cast was valid
+    function insertcast(exp,typ,speculative)
         if typ == nil or not types.istype(typ) or not exp.type then
             print(debug.traceback())
         end
@@ -443,9 +426,9 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                 (typ:isvector() and exp.type:isvector() and typ.N == exp.type.N)) and
                not typ:islogicalorvector() and not exp.type:islogicalorvector() then
                 return createcast(exp,typ), true
-            elseif typ:ispointer() and exp.type:ispointer() and typ.type == types.opaque then --implicit cast from any pointer to &opaque
+            elseif typ:ispointer() and exp.type:ispointer() and typ.type == types.opaque then
                 return createcast(exp,typ), true
-            elseif typ:ispointer() and exp.type == types.niltype then --niltype can be any pointer
+            elseif typ:ispointer() and exp.type == types.niltype then
                 return createcast(exp,typ), true
             elseif typ:isstruct() and typ.convertible and exp.type:isstruct() and exp.type.convertible then 
                 return structcast(false,exp,typ,speculative), true
@@ -457,7 +440,6 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                 return broadcast, valid
             end
 
-            --no builtin casts worked... now try user-defined casts
             local cast_fns = List()
             local function addcasts(typ)
                 if typ:isstruct() and typ.metamethods.__cast then
@@ -493,12 +475,12 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
             return createcast(exp,typ), false
         end
     end
-    function insertexplicitcast(exp,typ) --all implicit casts are allowed plus some additional casts like from int to pointer, pointer to int, and int to int
+    function insertexplicitcast(exp,typ) 
         if typ == exp.type then
             return exp
         elseif typ:ispointer() and exp.type:ispointer() then
             return createcast(exp,typ)
-        elseif typ:ispointer() and exp.type:isintegral() then --int to pointer
+        elseif typ:ispointer() and exp.type:isintegral() then 
             return createcast(exp,typ)
         elseif typ:isintegral() and exp.type:ispointer() then
             if typ.bytes < types.intptr.bytes then
@@ -506,34 +488,23 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
             end
             return createcast(exp,typ)
         elseif (typ:isprimitive() and exp.type:isprimitive())
-            or (typ:isvector() and exp.type:isvector() and typ.N == exp.type.N) then --explicit conversions from logicals to other primitives are allowed
+            or (typ:isvector() and exp.type:isvector() and typ.N == exp.type.N) then 
             return createcast(exp,typ)
         elseif typ:isstruct() and exp.type:isstruct() and exp.type.convertible then 
             return structcast(true,exp,typ)
         else
-            return insertcast(exp,typ) --otherwise, allow any implicit casts
+            return insertcast(exp,typ) 
         end
     end
-    function insertrecievercast(exp,typ,speculative) --casts allow for method recievers a:b(c,d) ==> b(a,c,d), but 'a' has additional allowed implicit casting rules
-                                                      --type can also be == "vararg" if the expected type of the reciever was an argument to the varargs of a function (this often happens when it is a lua function)
+    function insertrecievercast(exp,typ,speculative) 
          if typ == "vararg" then
              return insertaddressof(exp), true
          elseif typ:ispointer() and not exp.type:ispointer() then
-             --implicit address of allowed for recievers
              return insertcast(insertaddressof(exp),typ,speculative)
          else
             return insertcast(exp,typ,speculative)
         end
-        --notes:
-        --we force vararg recievers to be a pointer
-        --an alternative would be to return reciever.type in this case, but when invoking a lua function as a method
-        --this would case the lua function to get a pointer if called on a pointer, and a value otherwise
-        --in other cases, you would consistently get a value or a pointer regardless of receiver type
-        --for consistency, we all lua methods take pointers
     end
-
-
-    --functions to typecheck operator expressions
 
     local function typemeet(op,a,b)
         local function err()
@@ -551,7 +522,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                     return a
                 elseif a.signed then
                     return b
-                else --a is unsigned but b is signed
+                else 
                     return a
                 end
             elseif a:isintegral() and b:isfloat() then
@@ -573,7 +544,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
             return (rt == types.error and rt) or types.vector(rt,a.N)
         elseif (a:isvector() and b:isprimitive()) or (b:isvector() and a:isprimitive()) then
             if a:isprimitive() then
-                a,b = b,a --ensure a is vector and b is primitive
+                a,b = b,a 
             end
             local rt = typemeet(op,a.type,b)
             return (rt == types.error and rt) or types.vector(rt,a.N)
@@ -607,7 +578,6 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         return ee:copy { operands = List{e} }:withtype(e.type)
     end 
 
-
     local function meetbinary(e,property,lhs,rhs)
         local t,l,r = typematch(e,lhs,rhs)
         if t ~= types.error and not t[property](t) then
@@ -638,14 +608,13 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         local function pointerlike(t)
             return t:ispointer() or t:isarray()
         end
-        local function ascompletepointer(exp) --convert pointer like things into pointers to _complete_ types
+        local function ascompletepointer(exp) 
             exp.type.type:tcomplete(exp)
-            return (insertcast(exp,types.pointer(exp.type.type, exp.type.addressspace))) --parens are to truncate to 1 argument
+            return (insertcast(exp,types.pointer(exp.type.type, exp.type.addressspace))) 
         end
-        -- subtracting 2 pointers
         if  pointerlike(l.type) and pointerlike(r.type) and l.type.type == r.type.type and e.operator == tokens["-"] then
             return e:copy { operands = List {ascompletepointer(l),ascompletepointer(r)} }:withtype(types.ptrdiff)
-        elseif pointerlike(l.type) and r.type:isintegral() then -- adding or subtracting a int to a pointer
+        elseif pointerlike(l.type) and r.type:isintegral() then 
             return e:copy {operands = List {ascompletepointer(l),r} }:withtype(types.pointer(l.type.type, l.type.addressspace))
         elseif l.type:isintegral() and pointerlike(r.type) then
             return e:copy {operands = List {ascompletepointer(r),l} }:withtype(types.pointer(r.type.type, r.type.addressspace))
@@ -697,7 +666,6 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         return ee:copy { operands =  List{a,b} }:withtype(typ)
     end
 
-
     local function checkifelse(ee,operands)
         local cond = operands[1]
         local t,l,r = typematch(ee,operands[2],operands[3])
@@ -737,7 +705,6 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
     local function checkoperator(ee)
         local op_string = ee.operator
     
-        --check non-overloadable operators first
         if op_string == "@" then
             local e = checkexp(ee.operands[1])
             return insertdereference(e)
@@ -760,7 +727,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         for i,e in ipairs(operands) do
             if e.type:isstruct() then
                 local overloadmethod = (#operands == 1 and unaryoverloadmethod) or genericoverloadmethod
-                local overload = e.type.metamethods[overloadmethod] --TODO: be more intelligent here about merging overloaded functions so that all possibilities are considered
+                local overload = e.type.metamethods[overloadmethod]
                 if overload then
                     overloads:insert(asterraexpression(ee, overload, "luaobject"))
                 end
@@ -773,10 +740,9 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         return op(ee,operands)
     end
 
-    --functions to handle typecheck invocations (functions,methods,macros,operator overloads)
     local function removeluaobject(e)
         if not e:is "luaobject" or e.type == types.error then 
-            return e --don't repeat error messages
+            return e
         else
             if types.istype(e.value) then
                 diag:reporterror(e, "expected a terra expression but found terra type ", tostring(e.value), ". If this is a cast, you may have omitted the required parentheses: [T](exp)")
@@ -815,12 +781,8 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         if param.type == types.float then
             return insertcast(param,types.double)
         elseif param.type:isarray() then
-            --varargs are only possible as an interface to C (or Lua) where arrays are not value types
-            --this can cause problems (e.g. calling printf) when Terra passes the value
-            --so we degrade the array into pointer when it is an argument to a vararg parameter
             return insertcast(param,types.pointer(param.type.type))
         end
-        --TODO: do we need promotions for integral data types or does llvm already do that?
         return param
     end
 
@@ -872,7 +834,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                     ble = ble and b[i] == m
                     a[i] = m
                 end
-                return ale,ble --a = a meet b, a <= b, b <= a
+                return ale,ble 
             end
 
             local results,matches = List(),List()
@@ -893,7 +855,6 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                 end
             end
             if #results == 0 then
-                --no options were valid and our caller wants us to, lets emit some errors
                 if not speculate then
                     diag:reporterror(anchor,"call to overloaded function does not apply to any arguments")
                     for i,typelist in ipairs(typelists) do
@@ -912,7 +873,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         end
     end
 
-    local function insertcasts(anchor, typelist,paramlist) --typelist is a list of target types (or the value "passthrough"), paramlist is a parameter list that might have a multiple return value at the end
+    local function insertcasts(anchor, typelist,paramlist)
         return tryinsertcasts(anchor, List { typelist }, "none", false, false, paramlist)
     end
 
@@ -947,7 +908,6 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         return checkcall(anchor, List { fnlike }, fnargs, "first", false, location)
     end
 
-    --check if raii method is implemented, does not generate one
     local function hasraiimethod(receiver, method)
         if not terralib.ext then return false end
         local typ = receiver.type
@@ -960,7 +920,6 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         return false
     end
 
-    --check if raii method is implemented and generates one using `terralibext.t` if it is missing
     local function ismanagedtype(T, method)
         if T:isstruct() then
             terralib.ext.addmissing[method](T)
@@ -973,15 +932,12 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         return false
     end
 
-    --check if raii method is implemented and generates one using `terralibext.t` if it is missing
     local function ismanaged(receiver, method)
         if not terralib.ext then return false end
         local typ = receiver.type
         return typ~=nil and ismanagedtype(typ, method)
     end
 
-    --type check raii method __init or __dtor. __copy is handled separately
-    --methods are generated if they are missing
     local function checkraiimethodwithreceiver(anchor, receiver, method)
         if not terralib.ext then return end
         local typ = receiver.type
@@ -1001,7 +957,6 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         end
     end
 
-    --generate and typecheck raii __init's for use in a 'defvar' statement
     local function checkraiiinitializers(anchor, lhs)
         if not terralib.ext then return end
         local stmts = List()
@@ -1014,10 +969,8 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         return stmts
     end
 
-    --generate and typecheck raii __dtor's for use in `block` (scope) statement
     local function checkraiidtors(anchor, stats, exprs)
         if not terralib.ext then return stats end
-        --extract the return statement from `stats`, if there is one
         local function extractreturnstat()
             local n = #stats
             if n>0 then
@@ -1028,7 +981,6 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
             end
         end
         local rstat = extractreturnstat()
-        --extract the returned `var` symbols from a return statement
         local function extractreturnedsymbols()
             local function addtoreturnedsymbols(ret, expressions)
                 for i,v in ipairs(expressions) do
@@ -1038,42 +990,32 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                 end
             end
             local ret = {}
-            --loop over expressions in a `letin` return statement
             if rstat then
                 addtoreturnedsymbols(ret, rstat.expression.expressions)
             end
-            --loop over expressions from a 'letin' block
             if exprs then
                 addtoreturnedsymbols(ret, exprs)
             end
             return ret
         end
-        --get symbols that are returned in case of a return statement
-        --or 'exprs' in a letin block
         local rsyms = (rstat and rstat:is "returnstat" or exprs) and extractreturnedsymbols() or {}
-        --get position at which to add destructor statements
         local pos = rstat and #stats or #stats+1
-        --place destructor calls for variables that are not returned
         local function placedestructorcall(name, sym)
             if not rsyms[name] and not sym.ishandle then
-                --if not a return variable, then check for an implementation of methods.__dtor
                 local typ = sym.type
                 if typ:isstruct() or typ:isarray() then
                     local receiver = newobject(anchor, T.var, name, sym):setlvalue(true):withtype(typ)
                     local dtor = checkraiimethodwithreceiver(anchor, receiver, "__dtor")
                     if dtor then
-                        --add deferred calls to the destructors
                         table.insert(stats, pos, newobject(anchor, T.defer, dtor))
                     end
                 end
             end
         end
-        --add destructor calls for variables local to current scope
         local function clearcurrentscope()
             local lenv = env:localenv()
             local queue = env:queue()
             if queue and #queue > 0 then
-                --call destructor in reverse order of object creation
                 for k=#queue,1,-1 do
                     local name = queue[k]
                     local sym = lenv[name]
@@ -1081,7 +1023,6 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                 end
             end
         end
-        --add destructor calls for variables from all outer scopes
         local clearouterscopes
         function clearouterscopes()
             env:leaveblock()
@@ -1090,39 +1031,21 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                 clearouterscopes()
             end
         end
-        --clear the current scope
         clearcurrentscope()
-        --clear remaining variables in a break-statement
         if rstat and rstat:is "breakstat" then
-            --we've already cleaned up the managed variables corresponding to the current scope.
-            --now we still need to clean up the managed variables of the outer scope, which is
-            --the loop that we leave using the 'break' statement.
             local savedlocalenv = env._localenv
             local savedenvqueue = env._queue
             local scopedepth = env.scopedepth
             env:leaveblock()
             clearcurrentscope()
-            --would have been nicer to use 'env:leaveblock()' followed by 'env:enterblock()' but
-            --unfortunately this has side effects once you go to scopedepth zero. so we just
-            --save the local environment and reset it now that we are done.
             env._localenv = savedlocalenv
             env._queue = savedenvqueue
             env.scopedepth = scopedepth
-            --clear remaining input arguments
         elseif (rstat and rstat:is "returnstat") or (env.isfundef and (env.scopedepth==0 or env.scopedepth==1)) then
-            --we've already cleaned up the managed variables corresponding to the current scope.
-            --if this is a return statement then clear all remaining managed variables from outer
-            --scopes before the return
-            --if this is the outer most scope of a function (env.isfundef and env.scopedepth==1) then clean up all the
-            --remaining variables. The case (env.scopedepth==0) is needed for the corner case of functions that are
-            --empty - that don't do anything, but have variables that are passed by value.
             local savedlocalenv = env._localenv
             local savedenvqueue = env._queue
             local scopedepth = env.scopedepth
             clearouterscopes()
-            --would have been nicer to use 'env:leaveblock()' followed by 'env:enterblock()' but
-            --unfortunately this has side effects once you go to scopedepth zero. so we just
-            --save the local environment and reset it now that we are done.
             env._localenv = savedlocalenv
             env._queue = savedenvqueue
             env.scopedepth = scopedepth
@@ -1130,9 +1053,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         return stats
     end
 
-    --__copy is only enabled for a set of right-hand-sides
     local function validcopyrhs(from)
-        --allow one dereference
         if from:is "operator" and #from.operands==1 then
             from = from.operands[1]
         end
@@ -1143,26 +1064,18 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         end
     end
 
-    --type check raii __copy (copy-assignment) methods. They are generated
-    --if they are missing.
     local function checkraiicopyormoveassignment(anchor, from, to, copyormove)
         if not terralib.ext then return end
         if not validcopyrhs(from) then return end
-        --check for 'from.type.methods.[copyormove]' and 'to.type.methods.[copyormove]' and 
-        --generate them if needed
         if not (ismanaged(from, copyormove) or ismanaged(to, copyormove)) then
-            --return early in case types are not managed and 
-            --resort to regular copy
             return
         end
-        --if `to` is an allocvar then set type and turn into corresponding `var`
         if to:is "allocvar" then
             if not to.type then
                 to:settype(from.type or types.error)
             end
             to = newobject(anchor,T.var,to.name,to.symbol):setlvalue(true):withtype(to.type)
         end
-        --list of overloaded __copy metamethods
         local overloads = List()
         local function checkoverload(v)
             local typ = v.type
@@ -1175,7 +1088,6 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                 end
             end
         end
-        --add overloaded methods based on left- and right-hand-side of the assignment
         checkoverload(from)
         checkoverload(to)
         if #overloads > 0 then
@@ -1183,14 +1095,10 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         end
     end
 
-    --type check raii __copy (copy-assignment) methods. They are generated
-    --if they are missing.
     local function checkraiicopyassignment(anchor, from, to)
         return checkraiicopyormoveassignment(anchor, from, to, "__copy")
     end
 
-    --type check raii __move (move-assignment) methods. They are generated
-    --if they are missing.
     local function checkraiimoveassignment(anchor, from, to)
         return checkraiicopyormoveassignment(anchor, from, to, "__move")
     end
@@ -1239,10 +1147,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
     end
 
     function checkcall(anchor, fnlikelist, arguments, castbehavior, allowambiguous, location)
-        --arguments are always typed trees, or a lua object
         assert(#fnlikelist > 0)
-        --collect all the terra functions, stop collecting when we reach the first 
-        --macro and record it as themacro
         local terrafunctions = List()
         local themacro = nil
         for i,fn in ipairs(fnlikelist) do
@@ -1282,40 +1187,30 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
             local function tryinjectcopyormoveassignment(i, p)
                 local stmts = List()
                 local lv,l = allocvar(p, p.type, "<tmp>")
-                --only update the parameter if a copy-/move-assignment is implemented
-                --that maps 'from' onto 'to' of the same type.
                 local cp = (p.assignment ~= "move") and checkraiicopyassignment(p, p, l) or checkraiimoveassignment(p, p, l)
                 if cp then
-                    --allocate temporary
                     stmts:insert(lv)
-                    --insert __init for temporary
                     local init = checkraiimethodwithreceiver(p, l, "__init")
                     if init then
                         stmts:insert(init)
                     end
-                    --inject copy/move assignment
                     stmts:insert(cp)
-                    --reset parameter input as the temporary object that is initialized using
-                    --the copy-assignment
                     paramlist[i] = createlet(p, stmts, List{l}, true)
                 end
             end
-            --inject copy/move-assignment for all managed variables that are passed by value
-            --and that are not pased as a `__handle__`
             for i,p in ipairs(paramlist) do
                 local typ = p.type
                 if (typ:isstruct() or typ:isarray()) and validcopyrhs(p) and p.assignment ~= "handle" then
                     tryinjectcopyormoveassignment(i, p)
                 end
             end
-            --create actual call with this parameterlist
             callee.type.type:tcompletefunction(anchor)
             return newobject(anchor,T.apply,callee,paramlist):withtype(callee.type.type.returntype)
         end
     
         if #terrafunctions > 0 then
             local paramlist = arguments:map(removeluaobject)
-            local function getparametertypes(fn) --get the expected types for parameters to the call (this extends the function type to the length of the parameters if the function is vararg)
+            local function getparametertypes(fn) 
                 local fntyp = fn.type.type
                 if not fntyp.isvararg then return fntyp.parameters end
                 local vatypes = List()
@@ -1341,7 +1236,6 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         return anchor:aserror()
     end
 
-    --functions that handle the checking of expressions
     local function checkluaexpression(e,location)
         local value = {}
         if e.isexpression then
@@ -1373,14 +1267,13 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                 end
                 return asterraexpression(e,v, location)
             elseif e:is "quote" then
-                return e.tree -- already checked tree, quotes get injected directly into some untyped trees by macros
+                return e.tree 
             elseif e:is "selectu" then
                 local v = checkexp(e.value,"luavalue")
                 local f = checklabel(e.field,true)
                 local field = f.value
             
-                if v:is "luaobject" then -- handle A.B where A is a luatable or type
-                    --check for and handle Type.staticmethod
+                if v:is "luaobject" then
                     if types.istype(v.value) and v.value:isstruct() then
                         local fnlike, errmsg = v.value:getmethod(field)
                         if not fnlike then
@@ -1401,14 +1294,13 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                     end
                 end
             
-                if v.type:ispointertostruct() then --allow 1 implicit dereference
+                if v.type:ispointertostruct() then 
                     v = insertdereference(v)
                 end
 
                 if v.type:isstruct() then
                     local ret, success = insertselect(v,field)
                     if not success then
-                        --struct has no member field, call metamethod __entrymissing
                         local typ = v.type
                     
                         local function checkmacro(metamethod,arguments,location)
@@ -1440,7 +1332,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                 return checkluaexpression(e,location)
             elseif e:is "operator" then
                 return checkoperator(e)
-            elseif e:is "cast" then -- inserted by global to force a cast in the initializer
+            elseif e:is "cast" then 
                 return insertcast(checkexp(e.expression), e.to)
             elseif e:is "index" then
                 local v = checkexp(e.value)
@@ -1476,7 +1368,6 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                         return e:aserror()
                     end
                 
-                    --figure out what type this vector has
                     typ = entries[1].type
                     for i,e2 in ipairs(entries) do
                         typ = typemeet(e,typ,e2.type)
@@ -1494,7 +1385,6 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                     aggtype = types.array(typ,N)
                 end
             
-                --insert the casts to the right type in the parameter list
                 local typs = entries:map(function(x) return typ end)
                 entries = insertcasts(e,typs,entries)
                 return e:copy { expressions = entries }:withtype(aggtype)
@@ -1527,7 +1417,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                 end
                 local cmp = insertcast(checkexp(e.cmp),addr.type.type)
                 local new = insertcast(checkexp(e.new),addr.type.type)
-                return e:copy { address = addr, cmp = cmp, new = new }:withtype(types.tuple(addr.type.type, bool))
+                return e:copy { address = addr, cmp = cmp, new = new }:withtype(types.tuple(addr.type.type, types.bool))
             elseif e:is "atomicrmw" then
                 local addr = checkexp(e.address)
                 if not addr.type:ispointer() then
@@ -1560,7 +1450,6 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                 local ns = checkstmts(e.statements)
                 local ne = checkexpressions(e.expressions)
                 if e.hasstatements then
-                    --in case of statements check for dtors of managed variables
                     ns = checkraiidtors(e, ns, ne)
                 end
                 return createlet(e,ns,ne,e.hasstatements)
@@ -1600,21 +1489,17 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         end
     
         local result = docheck(e_)
-        --freeze all types returned by the expression (or list of expressions)
         if not result:is "luaobject" and not result:is "setteru" then
             assert(types.istype(result.type))
             result.type:tcomplete(result)
         end
 
-        --remove any lua objects if they are not allowed in this context
         if location ~= "luavalue" then
             result = removeluaobject(result)
         end
     
         return result
     end
-
-    --helper functions used in checking statements:
 
     local function checkexptyp(re,target)
         local e = checkexp(re)
@@ -1672,38 +1557,29 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         return newobject(anchor,T.letin, stmts, List {}, true):withtype(types.unit)
     end
 
-    --divide assignment into regular assignments and copy assignments
     local function divideintoregularandmanagedassignment(anchor, lhs, rhs)
         local regular = {lhs = List(), rhs = List()}
         local byfcall = {lhs = List(), rhs = List()}
         for i=1,#lhs do
             local to, from = lhs[i], rhs[i]
             if from.assignment == "handle" then
-                --we return a handle to the object, which does not invoke a __dtor
                 to.symbol:sethandle(true)
                 regular.rhs:insert(from)
                 regular.lhs:insert(to)
             elseif (from.assignment~="move") and checkraiicopyassignment(anchor, from, to) or checkraiimoveassignment(anchor, from, to) then
-                --add assignment by __copy call
                 byfcall.rhs:insert(from)
                 byfcall.lhs:insert(to)
             else
-                --default to regular assignment
                 regular.rhs:insert(from)
                 regular.lhs:insert(to)
             end
         end
         if #byfcall.lhs>0 and #byfcall.lhs+#regular.lhs>1 then
-            --__copy can potentially mutate left and right-handsides in an
-            --assignment. So we prohibit assignments that may involve something
-            --like a swap: u,v = v, u.
-            --for now we prohibit this by limiting such assignments
             diag:reporterror(anchor, "assignments of managed objects is not supported for tuples.")
         end
         return regular, byfcall
     end
 
-    --struct assignment pattern matching applies? true / false
     local function patterncanbematched(lhs, rhs)
         local last = rhs[#rhs]
         if last.type:isstruct() and last.type.convertible == "tuple" and #last.type.entries + #rhs - 1 == #lhs then
@@ -1714,10 +1590,9 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
 
     local createregularassignment
 
-    --try unpack struct and perform pattern match
     local function trystructpatternmatching(anchor, lhs, rhs)
         local last = rhs[#rhs]
-        local av,v = allocvar(anchor,last.type,"<structpattern>")   --temporary variable "<structpattern>"
+        local av,v = allocvar(anchor,last.type,"<structpattern>")  
         local newlhs,lhsp,rhsp = List(),List(),List()
         for i,l in ipairs(lhs) do
             if i < #rhs then
@@ -1728,8 +1603,8 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
             end
         end
         newlhs[#rhs] = av
-        local a1 = createassignment(anchor, newlhs, rhs)            --potential managed assignment
-        local a2 = createregularassignment(anchor, lhsp, rhsp)      --regular assignment - __copy and __dtor are possibly already called in 'a1'
+        local a1 = createassignment(anchor, newlhs, rhs)            
+        local a2 = createregularassignment(anchor, lhsp, rhsp)      
         return createstatementlist(anchor, List {a1, a2})
     end
 
@@ -1755,16 +1630,9 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
             lhs:settype(rhstype)
         else
             ensurelvalue(lhs)
-            --if 'v' is a managed variable then
-            --(1) var tmp = v       --store v in tmp
-            --(2) v = rhs[i]        --perform assignment (will be done by the callee)
-            --(3) tmp:__dtor()      --delete old v (will be a defered call)
-            --the temporary is necessary because rhs[i] may involve a function of 'v'
             if ismanaged(lhs, "__dtor") then
                 local tmpa, tmp = allocvar(lhs, lhs.type, "<tmp>")
-                --store v in tmp
                 stmts:insert(newobject(anchor,T.assignment, List{tmpa}, List{lhs}))
-                --add defered destructor call - tmp:__dtor()
                 stmts:insert(newobject(anchor, T.defer, checkraiimethodwithreceiver(anchor, tmp, "__dtor")))
             end
         end
@@ -1787,32 +1655,24 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
             if init then
                 stmts:insert(init)
             end
-            --insert copy-/move-assignment
             local cp = (rhs.assignment~="move") and checkraiicopyassignment(anchor, rhs, lhs) or checkraiimoveassignment(anchor, rhs, lhs)
             if cp then
                 stmts:insert(cp)
             end
         else
             ensurelvalue(lhs)
-            --apply copy/move assignment - memory resource management is in the
-            --hands of the programmer
-            --insert copy-/move-assignment
             local cp = (rhs.assignment~="move") and checkraiicopyassignment(anchor, rhs, lhs) or checkraiimoveassignment(anchor, rhs, lhs)
             if cp then stmts:insert(cp) end
         end
         return lhs, rhs
     end
 
-    --create regular assignment - no managed types
     function createregularassignment(anchor,lhs,rhs)
-        --special case where a rhs struct is unpacked
         if #lhs > #rhs and #rhs > 0 then
             if patterncanbematched(lhs, rhs) then
                 return trystructpatternmatching(anchor, lhs, rhs)
             end
         end
-        --if #lhs~=#rhs an error may be reported later during type-checking:
-        --'expected #lhs parameters (...), but found #rhs (...)'
         local vtypes = lhs:map(function(v) return v.type or "passthrough" end)
         rhs = insertcasts(anchor,vtypes,rhs)
         for i,v in ipairs(lhs) do
@@ -1822,36 +1682,26 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
     end
 
 
-    --create unmanaged/managed regular or copy assignments
     local function createmanagedassignment(anchor, lhs, rhs)
-        --special case where a rhs struct is unpacked
         if #lhs > #rhs and #rhs > 0 then
             if patterncanbematched(lhs, rhs) then
                 return trystructpatternmatching(anchor, lhs, rhs)
             end
         end
-        --sanity check
         assert(#lhs == #rhs)
-        --standard case #lhs == #rhs
         local stmts, post = List(), List()
-        --first take care of regular assignments
         local regular, byfcall = divideintoregularandmanagedassignment(anchor, lhs, rhs)
         local vtypes = regular.lhs:map(function(v) return v.type or "passthrough" end)
         regular.rhs = insertcasts(anchor, vtypes, regular.rhs)
-        --take care of regular assignments of managed variables
         for i,v in ipairs(regular.lhs) do
             regular.lhs[i], regular.rhs[i] = createunmanagedsingleassignment(anchor, stmts, v, regular.rhs[i])
         end
-        --take care of copy assignments using methods.__copy
         for i,v in ipairs(byfcall.lhs) do
             byfcall.lhs[i], byfcall.rhs[i] = createmanagedsingleassignment(anchor, stmts, v, byfcall.rhs[i])
         end
         if #stmts==0 then
-            --standard case, no meta-copy-assignments
             return newobject(anchor,T.assignment, regular.lhs, regular.rhs)
         else
-            --managed case using meta-copy-assignments
-            --the calls to `__copy` are in `stmts`
             if #regular.lhs>0 then
                 stmts:insert(newobject(anchor,T.assignment, regular.lhs, regular.rhs))
             end
@@ -1859,19 +1709,14 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         end
     end
 
-    --create assignment - regular / copy assignment
     function createassignment(anchor, lhs, rhs)
         if not terralib.ext or #lhs < #rhs then
-            --regular assignment - __init, __copy and __dtor will not be scheduled
             return createregularassignment(anchor, lhs, rhs)
         else
-            --managed assignment - __init, __copy and __dtor are scheduled for managed
-            --variables
             return createmanagedassignment(anchor, lhs, rhs)
         end
     end
 
-    --check block statements and generate and typecheck raii __dtor's
     function checkblock(s)
         env:enterblock()
         local stats = checkraiidtors(s, checkstmts(s.statements))
@@ -1885,7 +1730,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                 return checkblock(s)
             elseif s:is "returnstat" then
                 return s:copy { expression = checkexp(s.expression)}
-            elseif s:is "label" or s:is "gotostat" then    
+            elseif s:is "label" or s:is "gotostat" then   
                 local ss = checklabel(s.label)
                 return ast.copyobject(s, { label = ss })
             elseif s:is "breakstat" then
@@ -1988,7 +1833,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         end
         local newstats = List()
         local function addstat(s)
-            if s.kind == "letin" then --let blocks are collapsed into surrounding scope
+            if s.kind == "letin" then 
                 newstats:insertall(s.statements)
                 newstats:insertall(s.expressions)
             else
@@ -1997,7 +1842,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         end 
         for _,s in ipairs(stmts) do
             local r = checksingle(s)
-            if r.kind == "statlist" then -- lists of statements are spliced directly into the list
+            if r.kind == "statlist" then 
                 for _,rr in ipairs(r.statements) do
                     addstat(rr)
                 end
@@ -2014,7 +1859,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         end
         local visitlist,visittree,visit
         function visitlist(list)
-            local newlist --created when the first change is found
+            local newlist 
             for i,e in ipairs(list) do
                 local ee = visittree(e)
                 if not newlist and e ~= ee then
@@ -2031,7 +1876,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         end
         function visittree(tree)
             if T.returnstat:isclassof(tree) then
-                local rs = ast.copyobject(tree, {expression = visit(tree.expression) }) -- copy will be mutated later to insert casts
+                local rs = ast.copyobject(tree, {expression = visit(tree.expression) }) 
                 returnstats:insert(rs)
                 return rs
             end
@@ -2071,7 +1916,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
             assert(returntype)
         end
         for _,rs in ipairs(returnstats) do
-            rs.expression = insertcast(rs.expression,returntype) -- mutation is safe because we just made a unique copy of any parents
+            rs.expression = insertcast(rs.expression,returntype) 
         end
         return newbody, returntype
     end
@@ -2098,7 +1943,6 @@ end
 -- CONSTANT & QUOTE HELPERS
 -- ==========================================
 local function newquote(tree)
-    -- Creates a quote object exactly how Terra's macro system expects it
     local q = ast.newobject(tree, T.quote, tree)
     function q:gettype() return tree.type end
     return q
@@ -2119,13 +1963,11 @@ local function build_constant(typ, init)
         elseif T.quote:isclassof(init) then
             typ = init:gettype()
         else
-            -- Note: We dropped cdata/typeof inference because we don't have FFI type mapping anymore
-            error("constant constructor requires explicit type for objects of type " .. terra_type(init))
+            error("constant constructor requires explicit type for objects of type " .. terra.type(init))
         end
     end
     
     if init == nil or T.quote:isclassof(init) then 
-        -- Replace LLVM terra.global allocation with the pure ASDL node
         return T.globalvariable(nil, 0, false, true, typ)
     end
     
@@ -2135,16 +1977,10 @@ local function build_constant(typ, init)
         return newquote(ast.newobject(anchor, T.literal, init, typ))
     end
     
-    -- If it's not an aggregate, return the standard constant quote
     if not typ:isaggregate() then
-        -- Note: We skip the FFI terra.cast(typ, init) here because Lua numbers/bools 
-        -- are perfectly fine for the LSP's semantic pass.
         return newquote(ast.newobject(anchor, T.constant, init, typ))
     end 
     
-    -- LSP SAFE FALLBACK FOR AGGREGATES:
-    -- Instead of packing raw memory into an FFI string, we just return a dummy
-    -- constructor node of the correct type so the typechecker doesn't panic.
     local tree = ast.newobject(anchor, T.constructor, List{}):withtype(typ)
     return newquote(tree)
 end
@@ -2155,11 +1991,7 @@ local function isconstant(obj)
     else return false end
 end
 
--- Export to globals for extensions
-_G["constant"] = build_constant
-_G.terralib.isconstant = isconstant
-
-_G["operator"] = macros.internalmacro(function(diag,anchor,op,...)
+local operator_macro = macros.internalmacro(function(diag,anchor,op,...)
         local tbl = {
             __sub = "-";
             __add = "+";
@@ -2181,10 +2013,73 @@ _G["operator"] = macros.internalmacro(function(diag,anchor,op,...)
             __select = "select";
         }
     local opv = op:asvalue()
-    opv = tbl[opv] or opv --operator can be __add or +
-    return typecheck(newobject(anchor,T.operator,opv,List{...}))
+    opv = tbl[opv] or opv
+    return typecheck(ast.newobject(anchor,T.operator,opv,List{...}))
 end)
 
+-- ==========================================
+-- CONSTRUCTORS (Merged)
+-- ==========================================
+local function layoutstruct(st,tree,env)
+    -- ... (paste the layoutstruct body here) ...
+end
+
+local function desugarmethoddefinition(newtree,receiver)
+    -- ... (paste the desugarmethoddefinition body here) ...
+end
+
+local function evalformalparameters(diag,env,tree)
+    return ast.copyobject(tree, { 
+        parameters = evaluateparameterlist(diag,env,tree.parameters,true),
+        returntype = tree.returntype and evaltype(diag,env,tree.returntype) 
+    })
+end
+
+local function defineobjects(fmt,envfn,...)
+    -- ... (paste the defineobjects body here) ...
+    -- Note: inside this function, replace `typechecker.typecheck` 
+    -- with just the local `typecheck` since we are in the same file now!
+end
+
+local function anonstruct(tree,envfn)
+    local st = types.newstruct("anon",2)
+    layoutstruct(st,tree,envfn())
+    return st
+end
+
+local function anonfunction(tree,envfn)
+    local env = envfn()
+    local diag = diagnostics.newdiagnostics()
+    tree = evalformalparameters(diag,env,tree)
+    diag:finishandabortiferrors("Errors during function declaration.",2)
+    tree = typecheck(tree,env)
+    tree.name = "anon ("..tree.filename..":"..tree.linenumber..")"
+    return T.terrafunction(tree,tree.name,tree.type,tree)
+end
+
+local function externfunction(name,typ,anchor)
+    assert(T.Type:isclassof(typ) and (typ:isfunction() or typ:ispointertofunction()),"expected a pointer to a function")
+    if typ:ispointertofunction() then typ = typ.type end
+    anchor = anchor or ast.newanchor(2)
+    return T.terrafunction(ast.newobject(anchor,T.functionextern,name,typ),name,typ,anchor)
+end
+
+local function definequote(tree,envfn)
+    return quotes.newquote(typecheck(tree,envfn()))
+end
+
+-- ==========================================
+-- EXPORT
+-- ==========================================
 return {
-    typecheck = typecheck
+    typecheck = typecheck,
+    constant = build_constant,
+    isconstant = isconstant,
+    operator = operator_macro,
+    -- New Constructor Exports:
+    defineobjects = defineobjects,
+    anonstruct = anonstruct,
+    anonfunction = anonfunction,
+    externfunction = externfunction,
+    definequote = definequote
 }

@@ -6,97 +6,17 @@ local ffi = require("ffi")
 local uv = require("luv")
 
 -- ==========================================
--- 1. IMPORT SUB-MODULES
+-- 1. BOOTSTRAP UNIFIED NAMESPACE
 -- ==========================================
-local asdl = require("lua.asdl")
+-- This completely replaces the old requires, compatibility layer, and polyfills.
+local terra = require("lua.init")
 local TS = require("lua.ts_ffi")
 local ast_lowerer = require("lua.ast_lower")
-local macros = require("lua.macros")
-local quotes = require("lua.quotes")
-local functions = require("lua.functions")
-local ast = require("lua.ast")
-local types_module = require("lua.types")
-
-local T = ast.T
-local types = types_module.types
 
 pcall(function() ffi.cdef[[ char *ts_node_string(TSNode node); ]] end)
 
 -- ==========================================
--- 2. SETUP COMPATIBILITY LAYER
--- ==========================================
-_G.terralib = {}
-_G.terra = _G.terralib
-
-_G.T = T
-_G.newobject = ast.newobject
-_G.newanchor = ast.newanchor
-_G.List = asdl.List
-_G.terralib.types = types
-_G.terralib.newlist = asdl.List
-
--- Clean, silent macro execution
-_G.invokeuserfunction = function(anchor, what, speculate, userfn, ...)
-    if not speculate then return userfn(...) end
-    return xpcall(userfn, debug.traceback, ...)
-end
-
--- ==========================================
--- 3. APPLY CORE POLYFILLS
--- ==========================================
-
--- Type Resolvers
-_G.terra.typeof = function(obj)
-    if type(obj) ~= "cdata" then error("cannot get the type of a non cdata object") end
-    return types.ctypetoterra[tonumber(ffi.typeof(obj))]
-end
-
-_G.terra.isglobalvar = function(obj)
-    return T.globalvariable and T.globalvariable:isclassof(obj)
-end
-
-if T.globalvariable then
-    function T.globalvariable:isextern() return self.extern end
-    function T.globalvariable:isconstant() return self.constant end
-end
-
--- Modular Polyfills
-_G.terra.ismacro = macros.ismacro
-_G.terra.isquote = quotes.isquote
-_G.terra.newquote = quotes.newquote
-_G.terra.isfunction = functions.isfunction
-_G.terra.isoverloadedfunction = functions.isoverloadedfunction
-
--- ASDL Structure Polyfills
-_G.terra.issymbol = function(obj) return T.Symbol and T.Symbol:isclassof(obj) end
-_G.terra.istree = function(obj) return T.tree and T.tree:isclassof(obj) end
-_G.terra.islist = function(l) return asdl.List:isclassof(l) end
-
-_G.terra.type = function(t)
-    if type(t) ~= "table" then return type(t) end
-    if _G.terra.isfunction(t) then return "terrafunction"
-    elseif types.istype and types.istype(t) then return "terratype"
-    elseif _G.terra.ismacro(t) then return "terramacro"
-    elseif _G.terra.isglobalvar(t) then return "terraglobalvariable"
-    elseif _G.terra.isquote(t) then return "terraquote"
-    elseif _G.terra.istree(t) then return "terratree"
-    elseif _G.terra.islist(t) then return "list"
-    elseif _G.terra.issymbol(t) then return "terrasymbol"
-    elseif T.Label and T.Label:isclassof(t) then return "terralabel"
-    elseif _G.terra.isoverloadedfunction(t) then return "overloadedterrafunction"
-    else return type(t) end
-end
-
--- Sync terralib globals
-for k, v in pairs(_G.terra) do _G.terralib[k] = v end
-
--- ==========================================
--- 4. LOAD TYPECHECKER (MUST HAPPEN LAST)
--- ==========================================
-local typechecker = require("lua.typechecker")
-
--- ==========================================
--- 5. ENGINE EXECUTION
+-- 2. ENGINE EXECUTION
 -- ==========================================
 local args = _G.arg or {}
 print("========================================")
@@ -136,41 +56,69 @@ if tree ~= nil then
         local ASTEngine = ast_lowerer.create(TS, test_file_path)
         local LowerAST = ASTEngine.lower
         local module_env = setmetatable({}, { __index = _G })
-        local functions_to_typecheck = {}
         
         print("\n========================================")
-        print("🔍 PASS 1: HOISTING & AST LOWERING")
+        print("🔍 PASS 1: TREE-SITTER COLLECTION")
         print("========================================")
+        
+        -- We no longer typecheck manually! We build the format string and arguments 
+        -- for terra.defineobjects, just like the real compiler.
+        local fmt = ""
+        local define_args = {}
         
         for i = 0, child_count - 1 do
             local node = TS.node_child(root_node, i)
             local node_type = TS.safe_node_type(node)
             
-            -- HOIST FUNCTIONS
-            if node_type == "terra_function_implementation" then
+            -- EXTRACT LUA MACROS
+            if node_type == "local_declaration" or node_type == "function_declaration" then
+                local func_node = node
+                if node_type == "local_declaration" then
+                    for j = 0, TS.node_child_count(node) - 1 do
+                        local child = TS.node_child(node, j)
+                        if TS.safe_node_type(child) == "function_declaration" then
+                            func_node = child
+                            break
+                        end
+                    end
+                end
+                
+                if TS.safe_node_type(func_node) == "function_declaration" then
+                    local name_node = TS.node_child_by_field_name(func_node, "name", 4)
+                    if not ffi.C.ts_node_is_null(name_node) then
+                        local func_name = ffi.string(TS.get_node_text(name_node, source_code))
+                        local start_byte = TS.node_start_byte(node)
+                        local end_byte = TS.node_end_byte(node)
+                        local macro_code = string.sub(source_code, start_byte + 1, end_byte)
+                        
+                        local chunk = loadstring(macro_code .. "\nreturn " .. func_name)
+                        if chunk then
+                            setfenv(chunk, module_env)
+                            local status, macro_fn = pcall(chunk)
+                            if status and type(macro_fn) == "function" then
+                                print("🧠 Extracted Lua Macro: " .. func_name)
+                                module_env[func_name] = macro_fn
+                            end
+                        end
+                    end
+                end
+                
+            -- EXTRACT TERRA FUNCTIONS
+            elseif node_type == "terra_function_implementation" then
                 local name_node = TS.node_child_by_field_name(node, "name", 4)
-                local func_name = nil
-                
                 if not ffi.C.ts_node_is_null(name_node) then
-                    func_name = TS.get_node_text(name_node, source_code)
-                    if type(func_name) == "cdata" then func_name = ffi.string(func_name) end
-                end
-                
-                local my_lua_ast = LowerAST(node, source_code)
-                
-                if my_lua_ast and func_name then
-                    print("✨ Hoisting function: " .. func_name)
-                    local fn_obj = T.terrafunction(nil, func_name, types.placeholderfunction, my_lua_ast)
-                    module_env[func_name] = fn_obj
+                    local func_name = ffi.string(TS.get_node_text(name_node, source_code))
+                    local my_lua_ast = LowerAST(node, source_code)
                     
-                    table.insert(functions_to_typecheck, {
-                        name = func_name, 
-                        ast = my_lua_ast, 
-                        obj = fn_obj
-                    })
+                    if my_lua_ast then
+                        print("✨ Collected function: " .. func_name)
+                        fmt = fmt .. "f"
+                        table.insert(define_args, func_name)
+                        table.insert(define_args, my_lua_ast)
+                    end
                 end
                 
-            -- HOIST STRUCTS
+            -- EXTRACT STRUCTS
             elseif node_type == "struct_definition" or node_type == "struct_declaration" then
                 local named_children = {}
                 for j = 0, TS.node_child_count(node) - 1 do
@@ -182,53 +130,54 @@ if tree ~= nil then
                 
                 if #named_children >= 1 then
                     local struct_name = ffi.string(TS.get_node_text(named_children[1], source_code))
-                    print("🏗️  Hoisting struct: " .. struct_name)
+                    print("🏗️  Collected struct: " .. struct_name)
                     
-                    local my_struct = types.newstruct(struct_name)
-                    my_struct.entries = asdl.List()
+                    local entries = terra.asdl.List()
+                    local anchor = terra.newanchor(1, 1, test_file_path)
                     
                     for j = 2, #named_children, 2 do
                         if j + 1 <= #named_children then
                             local f_name = ffi.string(TS.get_node_text(named_children[j], source_code))
                             local f_type_str = ffi.string(TS.get_node_text(named_children[j+1], source_code))
                             
-                            local t_type = types[f_type_str] or types.int
-                            my_struct.entries:insert({field = f_name, type = t_type})
+                            -- The typechecker expects field types to be Lua expressions it can evaluate!
+                            local expr = terra.newobject(anchor, terra.T.luaexpression, function() 
+                                return _G.CURRENT_ENV[f_type_str] or terra.types[f_type_str] 
+                            end, true)
+                            
+                            entries:insert(terra.T.structentry(f_name, expr))
                         end
                     end
                     
-                    module_env[struct_name] = my_struct
+                    -- ASDL: structdef = (luaexpression? metatype, structlist records)
+                    local my_struct_ast = terra.newobject(anchor, terra.T.structdef, nil, terra.T.structlist(entries))
+                    
+                    fmt = fmt .. "s"
+                    table.insert(define_args, struct_name)
+                    table.insert(define_args, my_struct_ast)
                 end
             end
         end
         
         print("\n========================================")
-        print("⚙️ PASS 2: LAZY TYPECHECKING")
+        print("⚙️ PASS 2: NATIVE TYPECHECKING (defineobjects)")
         print("========================================")
         
-        for k, v in pairs(module_env) do
-            if T.terrafunction and T.terrafunction:isclassof(v) then
-                print("📦 Mapped Function: " .. k)
-            elseif types.istype and types.istype(v) and v:isstruct() then
-                print("📦 Mapped Struct:   " .. k)
-            end
-        end
-        print("----------------------------------------")
+        -- Expose environment for ast_lower deferred evaluations
+        _G.CURRENT_ENV = module_env 
         
-        for _, fn_data in ipairs(functions_to_typecheck) do
-            -- Expose current environment to global scope for ast_lower.lua deferred evaluation
-            _G.CURRENT_ENV = module_env 
-            
-            local status, typed_ast_or_err = pcall(typechecker.typecheck, fn_data.ast, module_env)
-            
-            if status then
-                fn_data.obj:adddefinition(typed_ast_or_err)
-                print("[ OK ] Typechecked: " .. fn_data.name)
-            else
-                print("[FAIL] Semantic Error in " .. fn_data.name .. ":")
-                print(typed_ast_or_err)
-            end
+        local status, err = pcall(function()
+            -- We let Terra's robust native architecture take the wheel!
+            _G.terra.defineobjects(fmt, function() return module_env end, unpack(define_args))
+        end)
+        
+        if status then
+            print("[ OK ] Module Typechecked Successfully!")
+        else
+            print("[FAIL] Semantic Error During Execution:")
+            print(err)
         end
+        
     end
     TS.tree_delete(tree)
 end
