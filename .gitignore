@@ -8,6 +8,7 @@ build
 
 test/coverage/*
 !test/coverage/CMakeLists.txt
+test/ast/terra
 
 test_package/*
 !test_package/src/
