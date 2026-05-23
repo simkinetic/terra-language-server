@@ -1,6 +1,6 @@
 -- lua/compiler/core_compiler.lua
 package.path = _G.LSP_ROOT .. "/lua/?.lua;" .. _G.LSP_ROOT .. "/lua/?/init.lua;" .. package.path
-require("mobdebug").start()
+-- require("mobdebug").start()
 
 local ffi = require("ffi")
 local uv = require("luv")
@@ -17,8 +17,13 @@ pcall(function() ffi.cdef[[ char *ts_node_string(TSNode node); ]] end)
 -- ==========================================
 local args = _G.arg or {}
 
--- If no args or --lsp flag, boot the Language Server!
-if #args == 0 or args[1] == "--lsp" then
+local is_lsp = false
+for _, v in ipairs(args) do
+    if v == "--lsp" then is_lsp = true end
+end
+
+-- If the user passed "--lsp", boot the server!
+if is_lsp then
     local server = require("lsp.core.server")
     server.start()
     os.exit(0)
@@ -179,3 +184,12 @@ if tree ~= nil then
     TS.tree_delete(tree)
 end
 TS.parser_delete(parser)
+
+
+local args = _G.arg or {}
+
+if #args == 0 or args[1] == "--lsp" then
+    local server = require("lsp.core.server")
+    server.start()
+    os.exit(0)
+end
