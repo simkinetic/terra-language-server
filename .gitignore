@@ -1,5 +1,7 @@
+# =========================
+# Existing Entries
+# =========================
 .vs
-.vscode
 .idea
 .DS_Store
 
@@ -15,3 +17,21 @@ test_package/*
 !test_package/CMakeLists.txt
 !test_package/conanfile.py
 .aider*
+
+# =========================
+# Node.js & VS Code Extension
+# =========================
+# Ignore downloaded Node dependencies
+node_modules/
+
+# Ignore VS Code extension test environments
+.vscode-test/
+
+# Ignore packaged extension binaries
+*.vsix
+
+# =========================
+# CMake & Conan Generated
+# =========================
+# Ignore the local user preset file Conan generates during install
+CMakeUserPresets.json
