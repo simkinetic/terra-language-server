@@ -80,6 +80,7 @@ int main(int argc, char** argv) {
     lua_pushlightuserdata(L, (void*)ts_parser_parse_string);       lua_setfield(L, -2, "ts_parser_parse_string");
     lua_pushlightuserdata(L, (void*)ts_tree_delete);               lua_setfield(L, -2, "ts_tree_delete");
     lua_pushlightuserdata(L, (void*)ts_tree_root_node);            lua_setfield(L, -2, "ts_tree_root_node");
+    lua_pushlightuserdata(L, (void*)ts_tree_edit);                 lua_setfield(L, -2, "ts_tree_edit");
     lua_pushlightuserdata(L, (void*)ts_node_string);               lua_setfield(L, -2, "ts_node_string");
     lua_pushlightuserdata(L, (void*)tree_sitter_terra);            lua_setfield(L, -2, "tree_sitter_terra");
     lua_pushlightuserdata(L, (void*)free);                         lua_setfield(L, -2, "free");

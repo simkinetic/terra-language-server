@@ -1525,11 +1525,6 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         end
         return e
     end
-    local function checkcasebranch(s)
-        local e = checkexpintegral(s.condition)
-        local body = checkblock(s.body)
-        return ast.copyobject(s,{condition = e, body = body})
-    end
 
     local function checkformalparameterlist(paramlist, requiretypes)
         local evalparams = evaluateparameterlist(diag,env:combinedenv(),paramlist,requiretypes)

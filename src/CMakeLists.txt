@@ -16,14 +16,14 @@ target_compile_definitions(terra-analyze PRIVATE
         TERRA_INSTALL_PREFIX="${CMAKE_INSTALL_PREFIX}"
 )
 
-# Copy the entire Lua directory tree to the build output directory after each build
-# This preserves the compiler/ and lsp/ folder structure!
-add_custom_command(TARGET terra-analyze POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_CURRENT_SOURCE_DIR}/lua
-        $<TARGET_FILE_DIR:terra-analyze>/lua
-        COMMENT "Copying Lua directory tree to build directory"
-)
+# # Copy the entire Lua directory tree to the build output directory after each build
+# # This preserves the compiler/ and lsp/ folder structure!
+# add_custom_command(TARGET terra-analyze POST_BUILD
+#         COMMAND ${CMAKE_COMMAND} -E copy_directory
+#         ${CMAKE_CURRENT_SOURCE_DIR}/lua
+#         $<TARGET_FILE_DIR:terra-analyze>/lua
+#         COMMENT "Copying Lua directory tree to build directory"
+# )
 
 # install target executable
 install(TARGETS terra-analyze DESTINATION bin)

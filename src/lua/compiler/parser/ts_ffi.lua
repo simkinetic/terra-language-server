@@ -1,4 +1,4 @@
--- lua/ts_ffi.lua
+-- lua/compiler/parser/ts_ffi.lua
 local ffi = require("ffi")
 
 ffi.cdef[[
@@ -16,6 +16,15 @@ ffi.cdef[[
         uint32_t row;
         uint32_t column;
     } TSPoint;
+
+    typedef struct {
+        uint32_t start_byte;
+        uint32_t old_end_byte;
+        uint32_t new_end_byte;
+        TSPoint start_point;
+        TSPoint old_end_point;
+        TSPoint new_end_point;
+    } TSInputEdit;
 
     bool ts_node_is_null(TSNode node);
     bool ts_node_is_named(TSNode node);
@@ -42,6 +51,8 @@ local TS = {
     node_end_byte               = ffi.cast("uint32_t (*)(TSNode)", TS_CAPI.ts_node_end_byte),
     node_start_point            = ffi.cast("TSPoint (*)(TSNode)", TS_CAPI.ts_node_start_point),
     node_end_point              = ffi.cast("TSPoint (*)(TSNode)", TS_CAPI.ts_node_end_point),
+    -- NEW: Incremental tree editing
+    tree_edit                   = ffi.cast("void (*)(TSTree*, const TSInputEdit*)", TS_CAPI.ts_tree_edit),
 }
 
 function TS.safe_node_type(node)
@@ -55,6 +66,22 @@ function TS.get_node_text(node, source_code)
     local start_byte = TS.node_start_byte(node)
     local end_byte = TS.node_end_byte(node)
     return source_code:sub(start_byte + 1, end_byte)
+end
+
+-- NEW: Helper to patch the C-AST
+function TS.edit_tree(tree, edit_params)
+    if not tree then return end
+    
+    local edit = ffi.new("TSInputEdit", {
+        start_byte    = edit_params.start_byte,
+        old_end_byte  = edit_params.old_end_byte,
+        new_end_byte  = edit_params.new_end_byte,
+        start_point   = { row = edit_params.start_row, column = edit_params.start_col },
+        old_end_point = { row = edit_params.old_end_row, column = edit_params.old_end_col },
+        new_end_point = { row = edit_params.new_end_row, column = edit_params.new_end_col }
+    })
+    
+    TS.tree_edit(tree, edit)
 end
 
 return TS
