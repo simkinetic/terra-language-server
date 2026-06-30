@@ -6,7 +6,7 @@ local quotes = require("compiler.semantics.quotes")
 local T = ast.T
 local diagnostics = require("compiler.semantics.diagnostics")
 local environment = require("compiler.semantics.environment")
-local types = require("compiler.semantics.types").types
+local types = require("compiler.semantics.types")
 
 local function evalluaexpression(env, e)
     if not T.luaexpression:isclassof(e) then
@@ -16,7 +16,7 @@ local function evalluaexpression(env, e)
     local fn = e.expression
     local oldenv = getfenv(fn)
     setfenv(fn,env)
-    local v = invokeuserfunction(e,"evaluating Lua code from Terra",false,fn)
+    local v = types.invokeuserfunction(e,"evaluating Lua code from Terra",false,fn)
     setfenv(fn,oldenv) 
     return v
 end
@@ -227,7 +227,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
     
     local invokeuserfunction = function(...)
         diag:finishandabortiferrors("Errors reported during typechecking.",2)
-        return invokeuserfunction(...)
+        return types.invokeuserfunction(...)
     end
     local evalluaexpression = function(...)
         diag:finishandabortiferrors("Errors reported during typechecking.",2)
@@ -345,7 +345,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                     diag:reporterror(anchor, "to call a lua function from terra first use terralib.cast to cast it to a terra function type.")
                 end
             end
-            return newobject(anchor,T.luaobject,v):withtype(T.luaobjecttype)
+            return ast.newobject(anchor,T.luaobject,v):withtype(T.luaobjecttype)
         end
         if not ast.israwlist(v) then
             return createsingle(v)
@@ -360,7 +360,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
             end
         end
         if location == "statement" then
-            return newobject(anchor,T.statlist,values):withtype(types.unit)
+            return ast.newobject(anchor,T.statlist,values):withtype(types.unit)
         end
         return createlet(anchor, List(), values, false)
     end
@@ -371,8 +371,8 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
     local insertrecievercast 
 
     local function allocvar(anchor,typ,name)
-        local av = newobject(anchor,T.allocvar,name,ast.newsymbol(typ,name)):setlvalue(true):withtype(typ:tcomplete(anchor))
-        local v = newobject(anchor,T.var,name,av.symbol):setlvalue(true):withtype(typ)
+        local av = ast.newobject(anchor,T.allocvar,name,ast.newsymbol(typ,name)):setlvalue(true):withtype(typ:tcomplete(anchor))
+        local v = ast.newobject(anchor,T.var,name,av.symbol):setlvalue(true):withtype(typ)
         return av,v
     end
     local createassignment
@@ -409,10 +409,10 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                 err("structural cast invalid, result structure has no key ", entry.key)
             else
                 local v = insertcast(selected,to.entries[offset+1].type)
-                entries:insert(newobject(exp,T.storelocation,offset,v))
+                entries:insert(ast.newobject(exp,T.storelocation,offset,v))
             end
         end
-        return newobject(exp,T.structcast,structvariable,exp,entries):withtype(typ)
+        return ast.newobject(exp,T.structcast,structvariable,exp,entries):withtype(typ)
     end
 
     function insertcast(exp,typ,speculative)
@@ -767,7 +767,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
     end
 
     function createlet(anchor, ns, ne, hasstatements)
-        local r = newobject(anchor,T.letin,ns,ne,hasstatements)
+        local r = ast.newobject(anchor,T.letin,ns,ne,hasstatements)
         if #ne == 1 then
             r:withtype(ne[1].type):setlvalue(ne[1].lvalue):setassignment(ne[1].assignment)
         else
@@ -943,7 +943,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         local typ = receiver.type
         if ismanagedtype(typ, method) then
             if receiver:is "allocvar" then
-                receiver = newobject(anchor,T.var,receiver.name,receiver.symbol):setlvalue(true):withtype(typ)
+                receiver = ast.newobject(anchor,T.var,receiver.name,receiver.symbol):setlvalue(true):withtype(typ)
             end
             if typ:isstruct() then
                 return checkmethodwithreciever(anchor, false, method, receiver, List(), "statement")
@@ -1004,10 +1004,10 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
             if not rsyms[name] and not sym.ishandle then
                 local typ = sym.type
                 if typ:isstruct() or typ:isarray() then
-                    local receiver = newobject(anchor, T.var, name, sym):setlvalue(true):withtype(typ)
+                    local receiver = ast.newobject(anchor, T.var, name, sym):setlvalue(true):withtype(typ)
                     local dtor = checkraiimethodwithreceiver(anchor, receiver, "__dtor")
                     if dtor then
-                        table.insert(stats, pos, newobject(anchor, T.defer, dtor))
+                        table.insert(stats, pos, ast.newobject(anchor, T.defer, dtor))
                     end
                 end
             end
@@ -1074,7 +1074,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
             if not to.type then
                 to:settype(from.type or types.error)
             end
-            to = newobject(anchor,T.var,to.name,to.symbol):setlvalue(true):withtype(to.type)
+            to = ast.newobject(anchor,T.var,to.name,to.symbol):setlvalue(true):withtype(to.type)
         end
         local overloads = List()
         local function checkoverload(v)
@@ -1138,7 +1138,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                         arguments:insert(rhs)
                         return checkmethodwithreciever(exp, true, "__update", fnlike, arguments, "statement") 
                     end
-                    return newobject(exp,T.setteru,setter)
+                    return ast.newobject(exp,T.setteru,setter)
                 end
                 return checkmethodwithreciever(exp, true, "__apply", fnlike, arguments, location) 
             end
@@ -1205,7 +1205,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                 end
             end
             callee.type.type:tcompletefunction(anchor)
-            return newobject(anchor,T.apply,callee,paramlist):withtype(callee.type.type.returntype)
+            return ast.newobject(anchor,T.apply,callee,paramlist):withtype(callee.type.type.returntype)
         end
     
         if #terrafunctions > 0 then
@@ -1314,7 +1314,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                             local function setter(rhs)
                                 return checkmacro("__setentry", List { v , rhs }, "statement")
                             end
-                            return newobject(v,T.setteru,setter)
+                            return ast.newobject(v,T.setteru,setter)
                         elseif macros.ismacro(typ.metamethods.__entrymissing) then
                             return checkmacro("__entrymissing",List { v },location)
                         else
@@ -1477,7 +1477,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                 else
                     diag:reporterror(e, "some entries in constructor are named while others are not")
                 end
-                return newobject(e,T.constructor,paramlist):withtype(typ:tcomplete(e))
+                return ast.newobject(e,T.constructor,paramlist):withtype(typ:tcomplete(e))
             elseif e:is "inlineasm" then
                 return e:copy { arguments = checkexpressions(e.arguments) }
             elseif e:is "debuginfo" then
@@ -1539,7 +1539,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                 lenv[p.name] = p.symbol
                 queue[#queue+1] = p.name
             end
-            local r = newobject(p,T.allocvar,p.name,p.symbol)
+            local r = ast.newobject(p,T.allocvar,p.name,p.symbol)
             if p.type then
                 r:withtype(p.type:tcomplete(p))
             end
@@ -1549,7 +1549,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
     end
 
     local function createstatementlist(anchor,stmts)
-        return newobject(anchor,T.letin, stmts, List {}, true):withtype(types.unit)
+        return ast.newobject(anchor,T.letin, stmts, List {}, true):withtype(types.unit)
     end
 
     local function divideintoregularandmanagedassignment(anchor, lhs, rhs)
@@ -1607,7 +1607,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         local rhstype = rhs and rhs.type or types.error
         if lhs:is "setteru" then
             local rv,r = allocvar(lhs, rhstype,"<rhs>")
-            lhs = newobject(lhs,T.setter, rv,lhs.setter(r))
+            lhs = ast.newobject(lhs,T.setter, rv,lhs.setter(r))
         elseif lhs:is "allocvar" then
             lhs:settype(rhstype)
         else
@@ -1620,15 +1620,15 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         local rhstype = rhs and rhs.type or types.error
         if lhs:is "setteru" then
             local rv,r = allocvar(lhs, rhstype,"<rhs>")
-            lhs = newobject(lhs, T.setter, rv, lhs.setter(r))
+            lhs = ast.newobject(lhs, T.setter, rv, lhs.setter(r))
         elseif lhs:is "allocvar" then
             lhs:settype(rhstype)
         else
             ensurelvalue(lhs)
             if ismanaged(lhs, "__dtor") then
                 local tmpa, tmp = allocvar(lhs, lhs.type, "<tmp>")
-                stmts:insert(newobject(anchor,T.assignment, List{tmpa}, List{lhs}))
-                stmts:insert(newobject(anchor, T.defer, checkraiimethodwithreceiver(anchor, tmp, "__dtor")))
+                stmts:insert(ast.newobject(anchor,T.assignment, List{tmpa}, List{lhs}))
+                stmts:insert(ast.newobject(anchor, T.defer, checkraiimethodwithreceiver(anchor, tmp, "__dtor")))
             end
         end
         return lhs, rhs
@@ -1640,7 +1640,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
             local rv,r = allocvar(lhs, rhstype,"<rhs>")
             local copyassignment = checkraiicopyassignment(anchor, rhs, r)
             if copyassignment then stmts:insert(copyassignment) end
-            stmts:insert(newobject(lhs, T.setter, rv, lhs.setter(r)))
+            stmts:insert(ast.newobject(lhs, T.setter, rv, lhs.setter(r)))
         elseif lhs:is "allocvar" then
             if not lhs.type then
                 lhs:settype(rhstype)
@@ -1673,7 +1673,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         for i,v in ipairs(lhs) do
             lhs[i], rhs[i] = createregularsingleassignment(anchor, v, rhs[i])
         end
-        return newobject(anchor,T.assignment,lhs,rhs)
+        return ast.newobject(anchor,T.assignment,lhs,rhs)
     end
 
 
@@ -1695,10 +1695,10 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
             byfcall.lhs[i], byfcall.rhs[i] = createmanagedsingleassignment(anchor, stmts, v, byfcall.rhs[i])
         end
         if #stmts==0 then
-            return newobject(anchor,T.assignment, regular.lhs, regular.rhs)
+            return ast.newobject(anchor,T.assignment, regular.lhs, regular.rhs)
         else
             if #regular.lhs>0 then
-                stmts:insert(newobject(anchor,T.assignment, regular.lhs, regular.rhs))
+                stmts:insert(ast.newobject(anchor,T.assignment, regular.lhs, regular.rhs))
             end
             return createstatementlist(anchor, stmts)
         end
@@ -1746,7 +1746,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
                 if not variable.type:isintegral() then diag:reporterror(variable,"expected an integral type for loop initialization but found ",variable.type) end
                 initial,step,limit = insertcast(initial,variable.type), step and insertcast(step,variable.type), insertcast(limit,variable.type)
                 local body = checkblock(s.body)
-                return newobject(s,T.fornum,variable,initial,limit,step,body)
+                return ast.newobject(s,T.fornum,variable,initial,limit,step,body)
             elseif s:is "forlist" then
                 local iterator = checkexp(s.iterator)
             
@@ -1926,7 +1926,7 @@ local function typecheck(topexp,luaenv,simultaneousdefinitions)
         local fntype = types.functype(parameter_types,returntype,topexp.is_varargs):tcompletefunction(topexp)
         diag:finishandabortiferrors("Errors reported during typechecking.",2)
         local labeldepths,globalsused = semanticcheck(diag,typed_parameters,body)
-        result = newobject(topexp,T.functiondef,nil,fntype,typed_parameters,topexp.is_varargs, body, labeldepths, globalsused)
+        result = ast.newobject(topexp,T.functiondef,nil,fntype,typed_parameters,topexp.is_varargs, body, labeldepths, globalsused)
     else
         result = checkexp(topexp)
     end

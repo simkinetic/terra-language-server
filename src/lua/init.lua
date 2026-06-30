@@ -7,7 +7,7 @@ terra.ast  = require("compiler.semantics.ast")
 terra.T    = terra.ast.T
 
 -- 2. Primitives 
-terra.types     = require("compiler.semantics.types").types
+terra.types     = require("compiler.semantics.types")
 terra.quotes    = require("compiler.semantics.quotes")
 terra.macros    = require("compiler.semantics.macros")
 terra.functions = require("compiler.semantics.functions")

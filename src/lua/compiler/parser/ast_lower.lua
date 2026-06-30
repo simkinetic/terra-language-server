@@ -2,8 +2,7 @@
 local ffi = require("ffi")
 local ast = require("compiler.semantics.ast")
 local asdl = require("compiler.semantics.asdl")
-local types_module = require("compiler.semantics.types")
-local types = types_module.types
+local types = require("compiler.semantics.types")
 local T = ast.T
 
 -- We pass the TS API in so this module doesn't rely on globals

@@ -491,7 +491,11 @@ function types.cast(terratype, obj)
     return ffi.cast(terratype.name or "void*", obj)
 end
 
-return {
-    types = types,
-    memoize = memoizefunction
-}
+-- ==========================================
+-- 5. EXPORT
+-- ==========================================
+
+types.memoize = memoizefunction
+types.invokeuserfunction = invokeuserfunction
+
+return types
